@@ -1,0 +1,84 @@
+@import url('https://fonts.googleapis.com/css2?family=Fraunces:opsz,wght@9..144,700&family=IBM+Plex+Mono:wght@500&family=Manrope:wght@400;500;600;700;800&display=swap');
+
+:root {
+  --ink: #1d2c30;
+  --muted: #61767a;
+  --edge: rgba(24, 47, 50, 0.1);
+  --teal: #0f766e;
+  --teal-deep: #155e63;
+  --orange-deep: #b45309;
+  --font-body: 'Manrope', 'Segoe UI', sans-serif;
+  --font-display: 'Fraunces', Georgia, serif;
+  --font-mono: 'IBM Plex Mono', Consolas, monospace;
+  font: 17px/1.55 var(--font-body);
+  color: var(--ink);
+  background:
+    radial-gradient(circle at top left, rgba(244, 211, 94, 0.18), transparent 26%),
+    radial-gradient(circle at top right, rgba(15, 118, 110, 0.14), transparent 30%),
+    linear-gradient(180deg, #fffaf3 0%, #f2faf7 48%, #eef6f2 100%);
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+  -webkit-font-smoothing: antialiased;
+  -moz-osx-font-smoothing: grayscale;
+}
+
+*,
+*::before,
+*::after {
+  box-sizing: border-box;
+}
+
+html {
+  scroll-behavior: smooth;
+}
+
+body {
+  margin: 0;
+  min-width: 320px;
+  min-height: 100vh;
+  color: var(--ink);
+}
+
+body::before,
+body::after {
+  content: '';
+  position: fixed;
+  border-radius: 999px;
+  filter: blur(70px);
+  pointer-events: none;
+  opacity: 0.7;
+}
+
+body::before {
+  width: 18rem;
+  height: 18rem;
+  top: 6rem;
+  left: -7rem;
+  background: rgba(217, 119, 6, 0.15);
+}
+
+body::after {
+  width: 14rem;
+  height: 14rem;
+  right: -4rem;
+  bottom: 4rem;
+  background: rgba(15, 118, 110, 0.12);
+}
+
+button,
+input,
+select,
+textarea {
+  font: inherit;
+}
+
+h1,
+h2,
+h3,
+p {
+  margin-block-start: 0;
+}
+
+#root {
+  min-height: 100vh;
+}
