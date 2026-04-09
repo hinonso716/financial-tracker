@@ -23,8 +23,7 @@ function CategoryBudgetChart({ data, currency }: CategoryBudgetChartProps) {
       <div className="empty-state">
         <h3>No category data yet</h3>
         <p>
-          Category charts will appear after you add expenses or schedule category
-          budgets.
+          Category charts will appear after you add expenses or set category budgets.
         </p>
       </div>
     )

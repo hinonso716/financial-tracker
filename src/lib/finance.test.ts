@@ -1,12 +1,12 @@
 import { describe, expect, it } from 'vitest'
 
 import {
-  formatStorageDate,
   getApplicableBudgetRule,
+  getOverviewSummaryRows,
   getPeriodSummary,
   getTransactionsInPeriod,
 } from './finance'
-import type { BudgetRule, Transaction } from './finance'
+import type { BudgetRule, Category, Transaction } from './finance'
 
 describe('finance helpers', () => {
   it('groups weekly periods starting on Monday', () => {
@@ -48,25 +48,32 @@ describe('finance helpers', () => {
     ])
   })
 
-  it('returns signed remaining values for under, exact, and over-budget periods', () => {
+  it('uses the latest mid-period budget change for the current period immediately', () => {
     const budgetRules: BudgetRule[] = [
       {
-        id: 'budget-weekly',
+        id: 'budget-weekly-original',
         scope: 'total',
         timeframe: 'weekly',
         amount: 300,
-        effectiveFrom: '2026-04-06',
+        effectiveFrom: '2026-04-06T00:00:00.000Z',
+      },
+      {
+        id: 'budget-weekly-updated',
+        scope: 'total',
+        timeframe: 'weekly',
+        amount: 500,
+        effectiveFrom: '2026-04-10T09:00:00.000Z',
       },
     ]
 
-    const underBudgetSummary = getPeriodSummary({
+    const summary = getPeriodSummary({
       transactions: [
         {
-          id: 'txn-under',
+          id: 'txn-current-week',
           type: 'expense',
           categoryId: 'expense-food',
           amount: 120,
-          occurredAt: '2026-04-07',
+          occurredAt: '2026-04-10',
         },
       ],
       budgetRules,
@@ -75,58 +82,32 @@ describe('finance helpers', () => {
       weekStartsOn: 1,
     })
 
-    const exactBudgetSummary = getPeriodSummary({
-      transactions: [
-        {
-          id: 'txn-exact',
-          type: 'expense',
-          categoryId: 'expense-food',
-          amount: 300,
-          occurredAt: '2026-04-07',
-        },
-      ],
-      budgetRules,
-      anchorDate: '2026-04-10',
-      timeframe: 'weekly',
-      weekStartsOn: 1,
-    })
-
-    const overBudgetSummary = getPeriodSummary({
-      transactions: [
-        {
-          id: 'txn-over',
-          type: 'expense',
-          categoryId: 'expense-food',
-          amount: 360,
-          occurredAt: '2026-04-07',
-        },
-      ],
-      budgetRules,
-      anchorDate: '2026-04-10',
-      timeframe: 'weekly',
-      weekStartsOn: 1,
-    })
-
-    expect(underBudgetSummary.remaining).toBe(180)
-    expect(exactBudgetSummary.remaining).toBe(0)
-    expect(overBudgetSummary.remaining).toBe(-60)
+    expect(summary.budget).toBe(500)
+    expect(summary.remaining).toBe(380)
   })
 
-  it('keeps historical budgets stable when newer rules are added later', () => {
+  it('keeps the last budget active within a closed period when revisiting history', () => {
     const rules: BudgetRule[] = [
       {
-        id: 'budget-april',
+        id: 'budget-april-start',
         scope: 'total',
         timeframe: 'monthly',
         amount: 5000,
-        effectiveFrom: '2026-04-01',
+        effectiveFrom: '2026-04-01T00:00:00.000Z',
+      },
+      {
+        id: 'budget-april-update',
+        scope: 'total',
+        timeframe: 'monthly',
+        amount: 6200,
+        effectiveFrom: '2026-04-20T12:00:00.000Z',
       },
       {
         id: 'budget-may',
         scope: 'total',
         timeframe: 'monthly',
-        amount: 6200,
-        effectiveFrom: '2026-05-01',
+        amount: 7000,
+        effectiveFrom: '2026-05-02T09:00:00.000Z',
       },
     ]
 
@@ -134,16 +115,109 @@ describe('finance helpers', () => {
       budgetRules: rules,
       scope: 'total',
       timeframe: 'monthly',
-      periodStart: formatStorageDate(new Date('2026-04-01')),
+      effectiveAt: '2026-04-30T23:59:59.999Z',
     })
     const mayRule = getApplicableBudgetRule({
       budgetRules: rules,
       scope: 'total',
       timeframe: 'monthly',
-      periodStart: formatStorageDate(new Date('2026-05-01')),
+      effectiveAt: '2026-05-31T23:59:59.999Z',
     })
 
-    expect(aprilRule?.amount).toBe(5000)
-    expect(mayRule?.amount).toBe(6200)
+    expect(aprilRule?.amount).toBe(6200)
+    expect(mayRule?.amount).toBe(7000)
+  })
+
+  it('builds overview summary rows with remaining formulas and safe percent handling', () => {
+    const categories: Category[] = [
+      {
+        id: 'expense-food',
+        name: 'Food',
+        kind: 'expense',
+        archived: false,
+      },
+      {
+        id: 'expense-travel',
+        name: 'Travel',
+        kind: 'expense',
+        archived: false,
+      },
+    ]
+
+    const budgetRules: BudgetRule[] = [
+      {
+        id: 'food-daily',
+        scope: 'category',
+        timeframe: 'daily',
+        categoryId: 'expense-food',
+        amount: 100,
+        effectiveFrom: '2026-04-01T00:00:00.000Z',
+      },
+      {
+        id: 'food-weekly',
+        scope: 'category',
+        timeframe: 'weekly',
+        categoryId: 'expense-food',
+        amount: 400,
+        effectiveFrom: '2026-04-01T00:00:00.000Z',
+      },
+      {
+        id: 'food-monthly',
+        scope: 'category',
+        timeframe: 'monthly',
+        categoryId: 'expense-food',
+        amount: 1000,
+        effectiveFrom: '2026-04-01T00:00:00.000Z',
+      },
+    ]
+
+    const transactions: Transaction[] = [
+      {
+        id: 'today-food',
+        type: 'expense',
+        categoryId: 'expense-food',
+        amount: 60,
+        occurredAt: '2026-04-10',
+      },
+      {
+        id: 'week-food',
+        type: 'expense',
+        categoryId: 'expense-food',
+        amount: 40,
+        occurredAt: '2026-04-08',
+      },
+      {
+        id: 'month-food',
+        type: 'expense',
+        categoryId: 'expense-food',
+        amount: 100,
+        occurredAt: '2026-04-02',
+      },
+    ]
+
+    const rows = getOverviewSummaryRows({
+      categories,
+      transactions,
+      budgetRules,
+      referenceDate: '2026-04-10',
+      weekStartsOn: 1,
+    })
+
+    const foodRow = rows.find((row) => row.categoryId === 'expense-food')
+    const travelRow = rows.find((row) => row.categoryId === 'expense-travel')
+
+    expect(foodRow).toMatchObject({
+      dailyBudget: 100,
+      dailySpent: 60,
+      dailyRemaining: 40,
+      weeklyBudget: 400,
+      weeklySpent: 100,
+      weeklyRemaining: 300,
+      monthlyBudget: 1000,
+      monthlySpent: 200,
+      monthlyRemaining: 800,
+    })
+    expect(foodRow?.monthlyPercentUsed).toBeCloseTo(20)
+    expect(travelRow?.monthlyPercentUsed).toBe(0)
   })
 })

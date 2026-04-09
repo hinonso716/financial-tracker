@@ -2,12 +2,12 @@ import type { FormEvent } from 'react'
 import { useEffect, useMemo, useState } from 'react'
 
 import './App.css'
+import BottomNav from './components/BottomNav'
 import BudgetManager from './components/BudgetManager'
-import BudgetSummaryTable from './components/BudgetSummaryTable'
 import CategoryBudgetChart from './components/CategoryBudgetChart'
 import CategoryManager from './components/CategoryManager'
+import OverviewSummaryTable from './components/OverviewSummaryTable'
 import Panel from './components/Panel'
-import PeriodHeader from './components/PeriodHeader'
 import SummaryCard from './components/SummaryCard'
 import TransactionEditor from './components/TransactionEditor'
 import TransactionsTable from './components/TransactionsTable'
@@ -19,7 +19,6 @@ import {
 } from './lib/defaults'
 import {
   formatCurrency,
-  formatDisplayDate,
   formatSignedCurrency,
   formatStorageDate,
   getActiveCategories,
@@ -28,7 +27,8 @@ import {
   getCategoryOptions,
   getCategorySummaryRows,
   getNow,
-  getNextBudgetEffectiveFrom,
+  getOverviewSummaryRows,
+  getOverviewTotals,
   getPeriodInterval,
   getPeriodSummary,
   getRollingTrendSeries,
@@ -42,11 +42,14 @@ import type {
   BudgetScope,
   Category,
   CategoryKind,
+  OverviewSummaryRow,
   Timeframe,
   Transaction,
   TransactionType,
 } from './lib/finance'
 import { loadAppState, saveAppState } from './lib/storage'
+
+type AppTab = 'input' | 'manage' | 'records' | 'overview'
 
 type TransactionFormState = {
   type: TransactionType
@@ -61,6 +64,41 @@ type BudgetFormState = {
   categoryId: string
   timeframe: Timeframe
   amount: string
+}
+
+const tabItems: { id: AppTab; label: string; description: string }[] = [
+  {
+    id: 'input',
+    label: 'Input',
+    description: 'Add or edit transactions quickly without the rest of the dashboard getting in the way.',
+  },
+  {
+    id: 'manage',
+    label: 'Manage',
+    description: 'Create categories and update daily, weekly, and monthly budgets whenever you need to.',
+  },
+  {
+    id: 'records',
+    label: 'Records',
+    description: 'Browse transactions by period, filter them, and jump into edits from one place.',
+  },
+  {
+    id: 'overview',
+    label: 'Overview',
+    description: 'See the summary table, current budget position, and clearer charts in one dashboard tab.',
+  },
+]
+
+const timeframeOptions: { value: Timeframe; label: string }[] = [
+  { value: 'daily', label: 'Day' },
+  { value: 'weekly', label: 'Week' },
+  { value: 'monthly', label: 'Month' },
+]
+
+const recordsTimeframeLabels: Record<Timeframe, string> = {
+  daily: 'day',
+  weekly: 'week',
+  monthly: 'month',
 }
 
 const createTransactionFormState = (
@@ -101,7 +139,11 @@ const getRemainingTone = (remaining: number | null) => {
   return remaining > 0 ? 'positive' : 'negative'
 }
 
-const getSummaryValue = (value: number | null, currency: string, signed = false) => {
+const getSummaryValue = (
+  value: number | null,
+  currency: string,
+  signed = false,
+) => {
   if (value === null) {
     return 'No budget'
   }
@@ -109,23 +151,16 @@ const getSummaryValue = (value: number | null, currency: string, signed = false)
   return signed ? formatSignedCurrency(value, currency) : formatCurrency(value, currency)
 }
 
-const getStatusLabel = (remaining: number | null, hasBudget: boolean) => {
-  if (!hasBudget || remaining === null) {
-    return 'No budget'
-  }
-
-  if (remaining === 0) {
-    return 'On target'
-  }
-
-  return remaining > 0 ? 'Under budget' : 'Over budget'
-}
-
 function App() {
   const initialState = useMemo(() => loadAppState(), [])
   const [appState, setAppState] = useState<AppState>(initialState)
-  const [selectedTimeframe, setSelectedTimeframe] = useState<Timeframe>('weekly')
-  const [anchorDate, setAnchorDate] = useState(() => formatStorageDate(getNow()))
+  const [activeTab, setActiveTab] = useState<AppTab>('overview')
+  const [recordsTimeframe, setRecordsTimeframe] = useState<Timeframe>('weekly')
+  const [recordsAnchorDate, setRecordsAnchorDate] = useState(() =>
+    formatStorageDate(getNow()),
+  )
+  const [overviewTrendTimeframe, setOverviewTrendTimeframe] =
+    useState<Timeframe>('monthly')
   const [editingTransactionId, setEditingTransactionId] = useState<string | null>(
     null,
   )
@@ -154,15 +189,13 @@ function App() {
   const { transactions, categories, budgetRules, preferences } = appState
   const currency = preferences.currency
   const weekStartsOn = preferences.weekStartsOn
+  const now = getNow()
+  const currentDateValue = formatStorageDate(now)
+  const currentTimestamp = now.toISOString()
 
   useEffect(() => {
     saveAppState(appState)
   }, [appState])
-
-  const selectedPeriod = useMemo(
-    () => getPeriodInterval(anchorDate, selectedTimeframe, weekStartsOn),
-    [anchorDate, selectedTimeframe, weekStartsOn],
-  )
 
   const activeExpenseCategories = useMemo(
     () => getActiveCategories(categories, 'expense'),
@@ -206,20 +239,25 @@ function App() {
     [activeExpenseCategories, budgetForm],
   )
 
-  const selectedPeriodTransactions = useMemo(
+  const recordsPeriod = useMemo(
+    () => getPeriodInterval(recordsAnchorDate, recordsTimeframe, weekStartsOn),
+    [recordsAnchorDate, recordsTimeframe, weekStartsOn],
+  )
+
+  const recordsTransactions = useMemo(
     () =>
       [...getTransactionsInPeriod({
         transactions,
-        anchorDate,
-        timeframe: selectedTimeframe,
+        anchorDate: recordsAnchorDate,
+        timeframe: recordsTimeframe,
         weekStartsOn,
       })].sort(sortTransactionsNewestFirst),
-    [anchorDate, selectedTimeframe, transactions, weekStartsOn],
+    [recordsAnchorDate, recordsTimeframe, transactions, weekStartsOn],
   )
 
-  const filteredTransactions = useMemo(
+  const filteredRecordTransactions = useMemo(
     () =>
-      selectedPeriodTransactions.filter((transaction) => {
+      recordsTransactions.filter((transaction) => {
         if (
           transactionTypeFilter !== 'all' &&
           transaction.type !== transactionTypeFilter
@@ -236,39 +274,55 @@ function App() {
 
         return true
       }),
-    [selectedPeriodTransactions, transactionCategoryFilter, transactionTypeFilter],
+    [recordsTransactions, transactionCategoryFilter, transactionTypeFilter],
   )
 
-  const selectedPeriodSummary = useMemo(
+  const recordsSummary = useMemo(
     () =>
       getPeriodSummary({
         transactions,
         budgetRules,
-        anchorDate,
-        timeframe: selectedTimeframe,
+        anchorDate: recordsAnchorDate,
+        timeframe: recordsTimeframe,
         weekStartsOn,
       }),
-    [anchorDate, budgetRules, selectedTimeframe, transactions, weekStartsOn],
+    [budgetRules, recordsAnchorDate, recordsTimeframe, transactions, weekStartsOn],
   )
 
-  const categorySummaryRows = useMemo(
+  const overviewTotals = useMemo(
+    () =>
+      getOverviewTotals({
+        transactions,
+        budgetRules,
+        referenceDate: currentDateValue,
+        weekStartsOn,
+      }),
+    [budgetRules, currentDateValue, transactions, weekStartsOn],
+  )
+
+  const overviewRows = useMemo(
+    () =>
+      getOverviewSummaryRows({
+        categories,
+        transactions,
+        budgetRules,
+        referenceDate: currentDateValue,
+        weekStartsOn,
+      }),
+    [budgetRules, categories, currentDateValue, transactions, weekStartsOn],
+  )
+
+  const monthlyCategoryRows = useMemo(
     () =>
       getCategorySummaryRows({
         categories,
         transactions,
         budgetRules,
-        anchorDate,
-        timeframe: selectedTimeframe,
+        anchorDate: currentDateValue,
+        timeframe: 'monthly',
         weekStartsOn,
-      }),
-    [
-      anchorDate,
-      budgetRules,
-      categories,
-      selectedTimeframe,
-      transactions,
-      weekStartsOn,
-    ],
+      }).filter((row) => row.spend > 0 || row.hasBudget),
+    [budgetRules, categories, currentDateValue, transactions, weekStartsOn],
   )
 
   const trendSeries = useMemo(
@@ -276,11 +330,17 @@ function App() {
       getRollingTrendSeries({
         transactions,
         budgetRules,
-        timeframe: selectedTimeframe,
-        anchorDate,
+        timeframe: overviewTrendTimeframe,
+        anchorDate: currentDateValue,
         weekStartsOn,
       }),
-    [anchorDate, budgetRules, selectedTimeframe, transactions, weekStartsOn],
+    [
+      budgetRules,
+      currentDateValue,
+      overviewTrendTimeframe,
+      transactions,
+      weekStartsOn,
+    ],
   )
 
   const budgetMatrixRows = useMemo(() => {
@@ -301,27 +361,24 @@ function App() {
         scope: target.scope,
         categoryId: target.scope === 'category' ? target.id : undefined,
         timeframe: 'daily',
-        referenceDate: getNow(),
-        weekStartsOn,
+        referenceDate: currentTimestamp,
       }),
       weekly: getBudgetSnapshot({
         budgetRules,
         scope: target.scope,
         categoryId: target.scope === 'category' ? target.id : undefined,
         timeframe: 'weekly',
-        referenceDate: getNow(),
-        weekStartsOn,
+        referenceDate: currentTimestamp,
       }),
       monthly: getBudgetSnapshot({
         budgetRules,
         scope: target.scope,
         categoryId: target.scope === 'category' ? target.id : undefined,
         timeframe: 'monthly',
-        referenceDate: getNow(),
-        weekStartsOn,
+        referenceDate: currentTimestamp,
       }),
     }))
-  }, [activeExpenseCategories, budgetRules, weekStartsOn])
+  }, [activeExpenseCategories, budgetRules, currentTimestamp])
 
   const categoryCountsByKind = useMemo(
     () =>
@@ -338,41 +395,36 @@ function App() {
     [categories],
   )
 
-  const budgetSummaryRows = [
-    {
-      categoryId: 'total',
+  const overviewOverallRow = useMemo<OverviewSummaryRow>(
+    () => ({
+      categoryId: 'overall',
       categoryName: 'Overall',
-      budget: selectedPeriodSummary.budget,
-      hasBudget: selectedPeriodSummary.hasBudget,
-      spend: selectedPeriodSummary.spend,
-      remaining: selectedPeriodSummary.remaining,
-      status: getStatusLabel(
-        selectedPeriodSummary.remaining,
-        selectedPeriodSummary.hasBudget,
-      ),
-    },
-    ...categorySummaryRows.map((row) => ({
-      categoryId: row.categoryId,
-      categoryName: row.categoryName,
-      budget: row.budget,
-      hasBudget: row.hasBudget,
-      spend: row.spend,
-      remaining: row.remaining,
-      status: getStatusLabel(row.remaining, row.hasBudget),
-    })),
-  ]
-
-  const categoryChartRows = categorySummaryRows.filter(
-    (row) => row.spend > 0 || row.hasBudget,
+      archived: false,
+      dailyBudget: overviewTotals.daily.budget,
+      dailySpent: overviewTotals.daily.spend,
+      dailyRemaining: overviewTotals.daily.remaining,
+      dailyHasBudget: overviewTotals.daily.hasBudget,
+      weeklyBudget: overviewTotals.weekly.budget,
+      weeklySpent: overviewTotals.weekly.spend,
+      weeklyRemaining: overviewTotals.weekly.remaining,
+      weeklyHasBudget: overviewTotals.weekly.hasBudget,
+      monthlyBudget: overviewTotals.monthly.budget,
+      monthlySpent: overviewTotals.monthly.spend,
+      monthlyRemaining: overviewTotals.monthly.remaining,
+      monthlyHasBudget: overviewTotals.monthly.hasBudget,
+      monthlyPercentUsed:
+        overviewTotals.monthly.budget > 0
+          ? (overviewTotals.monthly.spend / overviewTotals.monthly.budget) * 100
+          : 0,
+    }),
+    [overviewTotals],
   )
+
   const trendIsEmpty = trendSeries.every(
     (point) => point.spend === 0 && point.budget === 0 && point.income === 0,
   )
-  const budgetEffectiveFrom = getNextBudgetEffectiveFrom(
-    getNow(),
-    budgetForm.timeframe,
-    weekStartsOn,
-  )
+
+  const activeTabMeta = tabItems.find((tab) => tab.id === activeTab) ?? tabItems[0]
 
   const handleTransactionSubmit = (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
@@ -417,11 +469,7 @@ function App() {
       return
     }
 
-    const effectiveFrom = getNextBudgetEffectiveFrom(
-      getNow(),
-      budgetForm.timeframe,
-      weekStartsOn,
-    )
+    const effectiveFrom = getNow().toISOString()
     const nextBudgetRule: BudgetRule = {
       id: createBudgetRuleId(),
       scope: resolvedBudgetForm.scope,
@@ -436,81 +484,30 @@ function App() {
 
     setAppState((currentState) => ({
       ...currentState,
-      budgetRules: [
-        ...currentState.budgetRules.filter(
-          (rule) =>
-            !(
-              rule.scope === nextBudgetRule.scope &&
-              rule.timeframe === nextBudgetRule.timeframe &&
-              rule.categoryId === nextBudgetRule.categoryId &&
-              rule.effectiveFrom === nextBudgetRule.effectiveFrom
-            ),
-        ),
-        nextBudgetRule,
-      ],
+      budgetRules: [...currentState.budgetRules, nextBudgetRule],
     }))
     setBudgetNotice(
-      `Scheduled ${resolvedBudgetForm.scope === 'total' ? 'overall' : getCategoryName(categories, resolvedBudgetForm.categoryId)} budget from ${formatDisplayDate(effectiveFrom)}.`,
+      `Updated ${resolvedBudgetForm.scope === 'total' ? 'overall' : getCategoryName(categories, resolvedBudgetForm.categoryId)} ${resolvedBudgetForm.timeframe} budget immediately.`,
     )
     setBudgetForm((currentForm) => ({ ...currentForm, amount: '' }))
   }
 
   return (
     <div className="app-shell">
-      <PeriodHeader
-        selectedTimeframe={selectedTimeframe}
-        periodLabel={selectedPeriod.label}
-        onTimeframeChange={setSelectedTimeframe}
-        onShiftPeriod={(amount) =>
-          setAnchorDate((current) => shiftAnchorDate(current, selectedTimeframe, amount))
-        }
-      />
+      <header className="page-header">
+        <div>
+          <p className="eyebrow">Financial Tracker</p>
+          <h1>{activeTabMeta.label}</h1>
+        </div>
+        <p className="page-description">{activeTabMeta.description}</p>
+      </header>
 
-      <section className="summary-grid">
-        <SummaryCard
-          label="Spent"
-          value={formatCurrency(selectedPeriodSummary.spend, currency)}
-          helpText="Total expenses inside the selected timeframe."
-          testId="summary-spend"
-        />
-        <SummaryCard
-          label="Budget"
-          value={getSummaryValue(
-            selectedPeriodSummary.hasBudget ? selectedPeriodSummary.budget : null,
-            currency,
-          )}
-          helpText="Applies the total budget active at the start of the period."
-          testId="summary-budget"
-        />
-        <SummaryCard
-          label="Remaining"
-          value={getSummaryValue(selectedPeriodSummary.remaining, currency, true)}
-          helpText="Positive means quota left. Negative means overspending."
-          tone={getRemainingTone(selectedPeriodSummary.remaining)}
-          testId="summary-remaining"
-        />
-        <SummaryCard
-          label="Income"
-          value={formatCurrency(selectedPeriodSummary.income, currency)}
-          helpText="Income is tracked separately and does not affect budget usage."
-          tone="positive"
-          testId="summary-income"
-        />
-        <SummaryCard
-          label="Net cash flow"
-          value={formatSignedCurrency(selectedPeriodSummary.net, currency)}
-          helpText="Income minus expenses in the selected period."
-          tone={selectedPeriodSummary.net >= 0 ? 'positive' : 'negative'}
-          testId="summary-net"
-        />
-      </section>
-
-      <main className="content-grid">
-        <div className="stack">
+      {activeTab === 'input' ? (
+        <main className="tab-page">
           <Panel
             eyebrow="Transactions"
             title={editingTransactionId ? 'Edit transaction' : 'Add transaction'}
-            description="Capture every income or expense with a category, date, and short note."
+            description="Use this page as the clean entry point for expenses and income."
           >
             <TransactionEditor
               editing={editingTransactionId !== null}
@@ -526,9 +523,46 @@ function App() {
           </Panel>
 
           <Panel
+            eyebrow="Recent"
+            title="Latest entries"
+            description="A quick glance at the newest items you have saved."
+          >
+            <div className="quick-list">
+              {[...transactions]
+                .sort(sortTransactionsNewestFirst)
+                .slice(0, 6)
+                .map((transaction) => (
+                  <article className="quick-list-row" key={transaction.id}>
+                    <div>
+                      <strong>{getCategoryName(categories, transaction.categoryId)}</strong>
+                      <p>{transaction.note || 'No note'}</p>
+                    </div>
+                    <span
+                      className={transaction.type === 'income' ? 'positive' : 'negative'}
+                    >
+                      {transaction.type === 'income'
+                        ? formatSignedCurrency(transaction.amount, currency)
+                        : formatSignedCurrency(-transaction.amount, currency)}
+                    </span>
+                  </article>
+                ))}
+              {transactions.length === 0 ? (
+                <div className="empty-state small">
+                  <h3>No transactions yet</h3>
+                  <p>Start by saving your first income or expense entry.</p>
+                </div>
+              ) : null}
+            </div>
+          </Panel>
+        </main>
+      ) : null}
+
+      {activeTab === 'manage' ? (
+        <main className="tab-page">
+          <Panel
             eyebrow="Categories"
-            title="Manage categories"
-            description="Keep your expense and income buckets flexible without losing historical data."
+            title="Categories & budgets"
+            description="Manage expense and income categories separately from your records and dashboard."
           >
             <CategoryManager
               categories={categories}
@@ -618,13 +652,13 @@ function App() {
 
           <Panel
             eyebrow="Budgets"
-            title="Schedule budget rules"
-            description="Budget changes are versioned and only take effect on the next matching period boundary."
+            title="Change budgets instantly"
+            description="Budget edits apply to the current day, week, or month right away."
           >
             <BudgetManager
               form={resolvedBudgetForm}
               activeExpenseCategories={activeExpenseCategories}
-              budgetEffectiveFrom={budgetEffectiveFrom}
+              budgetAppliedAt={currentTimestamp}
               budgetNotice={budgetNotice}
               budgetMatrixRows={budgetMatrixRows}
               currency={currency}
@@ -632,75 +666,211 @@ function App() {
               onSubmit={handleBudgetSubmit}
             />
           </Panel>
-        </div>
+        </main>
+      ) : null}
 
-        <div className="stack">
+      {activeTab === 'records' ? (
+        <main className="tab-page">
+          <section className="toolbar-card">
+            <div className="toolbar-row">
+              <div className="segmented-control" role="tablist" aria-label="Record timeframe">
+                {timeframeOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`timeframe-button ${
+                      recordsTimeframe === option.value ? 'active' : ''
+                    }`}
+                    onClick={() => setRecordsTimeframe(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+
+              <div className="period-navigation compact">
+                <button
+                  type="button"
+                  className="nav-button"
+                  onClick={() =>
+                    setRecordsAnchorDate((current) =>
+                      shiftAnchorDate(current, recordsTimeframe, -1),
+                    )
+                  }
+                >
+                  Previous
+                </button>
+                <div className="period-badge compact">
+                  <span className="period-caption">Selected period</span>
+                  <strong data-testid="records-period-label">{recordsPeriod.label}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="nav-button"
+                  onClick={() =>
+                    setRecordsAnchorDate((current) =>
+                      shiftAnchorDate(current, recordsTimeframe, 1),
+                    )
+                  }
+                >
+                  Next
+                </button>
+              </div>
+            </div>
+          </section>
+
+          <section className="summary-grid compact-grid">
+            <SummaryCard
+              label="Spent"
+              value={formatCurrency(recordsSummary.spend, currency)}
+              helpText={`Expenses in this ${recordsTimeframeLabels[recordsTimeframe]} view.`}
+            />
+            <SummaryCard
+              label="Budget"
+              value={getSummaryValue(
+                recordsSummary.hasBudget ? recordsSummary.budget : null,
+                currency,
+              )}
+              helpText="Uses the last budget active in this period."
+            />
+            <SummaryCard
+              label="Remaining"
+              value={getSummaryValue(recordsSummary.remaining, currency, true)}
+              helpText="Positive means quota left. Negative means overspending."
+              tone={getRemainingTone(recordsSummary.remaining)}
+            />
+          </section>
+
+          <Panel
+            eyebrow="Records"
+            title="Transaction records"
+            description="Filter by period, category, or type, then jump into edit mode from here."
+          >
+            <TransactionsTable
+              categories={categories}
+              transactions={filteredRecordTransactions}
+              transactionTypeFilter={transactionTypeFilter}
+              transactionCategoryFilter={transactionCategoryFilter}
+              currency={currency}
+              onTypeFilterChange={setTransactionTypeFilter}
+              onCategoryFilterChange={setTransactionCategoryFilter}
+              onEdit={(transaction) => {
+                setEditingTransactionId(transaction.id)
+                setTransactionForm({
+                  type: transaction.type,
+                  categoryId: transaction.categoryId,
+                  amount: `${transaction.amount}`,
+                  occurredAt: transaction.occurredAt,
+                  note: transaction.note ?? '',
+                })
+                setActiveTab('input')
+              }}
+              onDelete={(transactionId) => {
+                setAppState((currentState) => ({
+                  ...currentState,
+                  transactions: currentState.transactions.filter(
+                    (transaction) => transaction.id !== transactionId,
+                  ),
+                }))
+
+                if (editingTransactionId === transactionId) {
+                  setEditingTransactionId(null)
+                  setTransactionForm(createTransactionFormState(categories))
+                }
+              }}
+            />
+          </Panel>
+        </main>
+      ) : null}
+
+      {activeTab === 'overview' ? (
+        <main className="tab-page">
+          <section className="summary-grid">
+            <SummaryCard
+              label="Spent This Month"
+              value={formatCurrency(overviewTotals.monthly.spend, currency)}
+              helpText="Overall expense total for the current month."
+              testId="summary-spend"
+            />
+            <SummaryCard
+              label="Monthly Budget"
+              value={getSummaryValue(
+                overviewTotals.monthly.hasBudget ? overviewTotals.monthly.budget : null,
+                currency,
+              )}
+              helpText="Latest monthly overall budget active this month."
+              testId="summary-budget"
+            />
+            <SummaryCard
+              label="Monthly Remaining"
+              value={getSummaryValue(overviewTotals.monthly.remaining, currency, true)}
+              helpText="How much monthly quota is left right now."
+              tone={getRemainingTone(overviewTotals.monthly.remaining)}
+              testId="summary-remaining"
+            />
+            <SummaryCard
+              label="Income This Month"
+              value={formatCurrency(overviewTotals.monthly.income, currency)}
+              helpText="Income is tracked separately from budget usage."
+              tone="positive"
+              testId="summary-income"
+            />
+            <SummaryCard
+              label="Net Cash Flow"
+              value={formatSignedCurrency(overviewTotals.monthly.net, currency)}
+              helpText="Income minus expenses for the current month."
+              tone={overviewTotals.monthly.net >= 0 ? 'positive' : 'negative'}
+              testId="summary-net"
+            />
+          </section>
+
+          <Panel
+            eyebrow="Overview"
+            title="Budget summary"
+            description="This table keeps daily, weekly, and monthly category numbers together like a spreadsheet."
+          >
+            <OverviewSummaryTable
+              rows={overviewRows}
+              overallRow={overviewOverallRow}
+              currency={currency}
+            />
+          </Panel>
+
           <Panel
             eyebrow="Charts"
             title="Spend vs budget trend"
-            description="Rolling history for the currently selected timeframe."
+            description="One chart per row so each trend is easier to read."
           >
+            <div className="chart-toolbar">
+              <div className="segmented-control" role="tablist" aria-label="Trend timeframe">
+                {timeframeOptions.map((option) => (
+                  <button
+                    key={option.value}
+                    type="button"
+                    className={`timeframe-button ${
+                      overviewTrendTimeframe === option.value ? 'active' : ''
+                    }`}
+                    onClick={() => setOverviewTrendTimeframe(option.value)}
+                  >
+                    {option.label}
+                  </button>
+                ))}
+              </div>
+            </div>
             <TrendChart data={trendSeries} currency={currency} empty={trendIsEmpty} />
           </Panel>
 
           <Panel
             eyebrow="Charts"
-            title="Category budget comparison"
-            description="Compare spend and budget for the selected period."
+            title="Monthly category comparison"
+            description="Monthly category spending and budgets are separated into their own chart for readability."
           >
-            <CategoryBudgetChart data={categoryChartRows} currency={currency} />
+            <CategoryBudgetChart data={monthlyCategoryRows} currency={currency} />
           </Panel>
-        </div>
-      </main>
+        </main>
+      ) : null}
 
-      <section className="table-grid">
-        <Panel
-          eyebrow="Table"
-          title="Budget summary table"
-          description="Remaining values are shown as positive when under budget and negative when over."
-        >
-          <BudgetSummaryTable rows={budgetSummaryRows} currency={currency} />
-        </Panel>
-
-        <Panel
-          eyebrow="Table"
-          title="Transactions in selected period"
-          description="Filter the current period and edit or remove entries directly from the table."
-        >
-          <TransactionsTable
-            categories={categories}
-            transactions={filteredTransactions}
-            transactionTypeFilter={transactionTypeFilter}
-            transactionCategoryFilter={transactionCategoryFilter}
-            currency={currency}
-            onTypeFilterChange={setTransactionTypeFilter}
-            onCategoryFilterChange={setTransactionCategoryFilter}
-            onEdit={(transaction) => {
-              setEditingTransactionId(transaction.id)
-              setTransactionForm({
-                type: transaction.type,
-                categoryId: transaction.categoryId,
-                amount: `${transaction.amount}`,
-                occurredAt: transaction.occurredAt,
-                note: transaction.note ?? '',
-              })
-            }}
-            onDelete={(transactionId) => {
-              setAppState((currentState) => ({
-                ...currentState,
-                transactions: currentState.transactions.filter(
-                  (transaction) => transaction.id !== transactionId,
-                ),
-              }))
-
-              if (editingTransactionId === transactionId) {
-                setEditingTransactionId(null)
-                setTransactionForm(createTransactionFormState(categories))
-              }
-            }}
-          />
-        </Panel>
-      </section>
+      <BottomNav activeTab={activeTab} items={tabItems} onChange={setActiveTab} />
     </div>
   )
 }

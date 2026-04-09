@@ -1,4 +1,8 @@
-import { formatDisplayDate, formatSignedCurrency, getCategoryName } from '../lib/finance'
+import {
+  formatDisplayDate,
+  formatSignedCurrency,
+  getCategoryName,
+} from '../lib/finance'
 import type { Category, Transaction, TransactionType } from '../lib/finance'
 
 type TransactionsTableProps = {
@@ -80,7 +84,7 @@ function TransactionsTable({
                     </span>
                   </td>
                   <td>{getCategoryName(categories, transaction.categoryId)}</td>
-                  <td>{transaction.note || '—'}</td>
+                  <td>{transaction.note || 'No note'}</td>
                   <td className={transaction.type === 'income' ? 'positive' : 'negative'}>
                     {transaction.type === 'income'
                       ? formatSignedCurrency(transaction.amount, currency)

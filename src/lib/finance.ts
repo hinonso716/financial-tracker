@@ -6,7 +6,6 @@ import {
   endOfMonth,
   endOfWeek,
   format,
-  isAfter,
   isBefore,
   isEqual,
   parseISO,
@@ -95,7 +94,38 @@ export type RollingTrendPoint = {
 
 export type BudgetSnapshot = {
   active: BudgetRule | null
-  next: BudgetRule | null
+}
+
+export type OverviewSummaryRow = {
+  categoryId: string
+  categoryName: string
+  archived: boolean
+  dailyBudget: number
+  dailySpent: number
+  dailyRemaining: number | null
+  dailyHasBudget: boolean
+  weeklyBudget: number
+  weeklySpent: number
+  weeklyRemaining: number | null
+  weeklyHasBudget: boolean
+  monthlyBudget: number
+  monthlySpent: number
+  monthlyRemaining: number | null
+  monthlyHasBudget: boolean
+  monthlyPercentUsed: number
+}
+
+export type OverviewSummaryTotals = {
+  daily: PeriodSummary
+  weekly: PeriodSummary
+  monthly: PeriodSummary
+}
+
+type ExpenseMetric = {
+  budget: number
+  spend: number
+  hasBudget: boolean
+  remaining: number | null
 }
 
 const PERIOD_SERIES_LENGTH: Record<Timeframe, number> = {
@@ -125,6 +155,62 @@ const getCurrencyFormatter = (currency: string) => {
   return formatter
 }
 
+const isOnOrBefore = (candidate: Date, boundary: Date) =>
+  isBefore(candidate, boundary) || isEqual(candidate, boundary)
+
+const sumTransactions = (
+  transactions: Transaction[],
+  predicate: (transaction: Transaction) => boolean,
+) =>
+  transactions.reduce(
+    (sum, transaction) => (predicate(transaction) ? sum + transaction.amount : sum),
+    0,
+  )
+
+const getExpenseMetric = ({
+  transactions,
+  budgetRules,
+  period,
+  timeframe,
+  categoryId,
+}: {
+  transactions: Transaction[]
+  budgetRules: BudgetRule[]
+  period: PeriodInterval
+  timeframe: Timeframe
+  categoryId?: string
+}): ExpenseMetric => {
+  const periodTransactions = transactions.filter((transaction) => {
+    const occurredAt = parseDateValue(transaction.occurredAt)
+    return (
+      transaction.type === 'expense' &&
+      isOnOrBefore(period.start, occurredAt) &&
+      isOnOrBefore(occurredAt, period.end) &&
+      (categoryId ? transaction.categoryId === categoryId : true)
+    )
+  })
+  const spend = periodTransactions.reduce(
+    (sum, transaction) => sum + transaction.amount,
+    0,
+  )
+  const budgetRule = getApplicableBudgetRule({
+    budgetRules,
+    scope: categoryId ? 'category' : 'total',
+    timeframe,
+    effectiveAt: period.end,
+    categoryId,
+  })
+  const budget = budgetRule?.amount ?? 0
+  const hasBudget = budgetRule !== null
+
+  return {
+    budget,
+    spend,
+    hasBudget,
+    remaining: hasBudget ? budget - spend : null,
+  }
+}
+
 export const parseDateValue = (value: string | Date) =>
   value instanceof Date ? value : parseISO(value)
 
@@ -133,6 +219,9 @@ export const formatStorageDate = (value: string | Date) =>
 
 export const formatDisplayDate = (value: string | Date) =>
   format(parseDateValue(value), 'd MMM yyyy')
+
+export const formatDisplayDateTime = (value: string | Date) =>
+  format(parseDateValue(value), 'd MMM yyyy, h:mm a')
 
 export const formatCurrency = (value: number, currency = 'HKD') =>
   getCurrencyFormatter(currency).format(value)
@@ -212,23 +301,6 @@ export const shiftAnchorDate = (
   }
 }
 
-export const getNextBudgetEffectiveFrom = (
-  referenceDate: string | Date,
-  timeframe: Timeframe,
-  weekStartsOn: 1,
-) => {
-  const currentPeriod = getPeriodInterval(referenceDate, timeframe, weekStartsOn)
-
-  switch (timeframe) {
-    case 'daily':
-      return formatStorageDate(addDays(currentPeriod.start, 1))
-    case 'weekly':
-      return formatStorageDate(addWeeks(currentPeriod.start, 1))
-    case 'monthly':
-      return formatStorageDate(addMonths(currentPeriod.start, 1))
-  }
-}
-
 const matchesBudgetRule = (
   rule: BudgetRule,
   scope: BudgetScope,
@@ -247,24 +319,21 @@ export const getApplicableBudgetRule = ({
   budgetRules,
   scope,
   timeframe,
-  periodStart,
+  effectiveAt,
   categoryId,
 }: {
   budgetRules: BudgetRule[]
   scope: BudgetScope
   timeframe: Timeframe
-  periodStart: string | Date
+  effectiveAt: string | Date
   categoryId?: string
 }) => {
-  const boundary = parseDateValue(periodStart)
+  const boundary = parseDateValue(effectiveAt)
 
   return (
     budgetRules
       .filter((rule) => matchesBudgetRule(rule, scope, timeframe, categoryId))
-      .filter((rule) => {
-        const effective = parseDateValue(rule.effectiveFrom)
-        return isBefore(effective, boundary) || isEqual(effective, boundary)
-      })
+      .filter((rule) => isOnOrBefore(parseDateValue(rule.effectiveFrom), boundary))
       .sort(compareRuleDatesDescending)[0] ?? null
   )
 }
@@ -274,39 +343,22 @@ export const getBudgetSnapshot = ({
   scope,
   timeframe,
   referenceDate,
-  weekStartsOn,
   categoryId,
 }: {
   budgetRules: BudgetRule[]
   scope: BudgetScope
   timeframe: Timeframe
   referenceDate: string | Date
-  weekStartsOn: 1
   categoryId?: string
-}): BudgetSnapshot => {
-  const currentPeriod = getPeriodInterval(referenceDate, timeframe, weekStartsOn)
-  const matching = budgetRules
-    .filter((rule) => matchesBudgetRule(rule, scope, timeframe, categoryId))
-    .sort(compareRuleDatesDescending)
-
-  const active =
-    matching.find((rule) => {
-      const effective = parseDateValue(rule.effectiveFrom)
-      return isBefore(effective, currentPeriod.start) || isEqual(effective, currentPeriod.start)
-    }) ?? null
-
-  const next =
-    [...matching]
-      .sort(
-        (left, right) =>
-          parseDateValue(left.effectiveFrom).getTime() -
-          parseDateValue(right.effectiveFrom).getTime(),
-      )
-      .find((rule) => isAfter(parseDateValue(rule.effectiveFrom), currentPeriod.start)) ??
-    null
-
-  return { active, next }
-}
+}): BudgetSnapshot => ({
+  active: getApplicableBudgetRule({
+    budgetRules,
+    scope,
+    timeframe,
+    effectiveAt: referenceDate,
+    categoryId,
+  }),
+})
 
 export const getTransactionsInPeriod = ({
   transactions,
@@ -323,10 +375,7 @@ export const getTransactionsInPeriod = ({
 
   return transactions.filter((transaction) => {
     const occurredAt = parseDateValue(transaction.occurredAt)
-    return (
-      (isAfter(occurredAt, period.start) || isEqual(occurredAt, period.start)) &&
-      (isBefore(occurredAt, period.end) || isEqual(occurredAt, period.end))
-    )
+    return isOnOrBefore(period.start, occurredAt) && isOnOrBefore(occurredAt, period.end)
   })
 }
 
@@ -350,17 +399,19 @@ export const getPeriodSummary = ({
     timeframe,
     weekStartsOn,
   })
-  const spend = periodTransactions
-    .filter((transaction) => transaction.type === 'expense')
-    .reduce((sum, transaction) => sum + transaction.amount, 0)
-  const income = periodTransactions
-    .filter((transaction) => transaction.type === 'income')
-    .reduce((sum, transaction) => sum + transaction.amount, 0)
+  const spend = sumTransactions(
+    periodTransactions,
+    (transaction) => transaction.type === 'expense',
+  )
+  const income = sumTransactions(
+    periodTransactions,
+    (transaction) => transaction.type === 'income',
+  )
   const budgetRule = getApplicableBudgetRule({
     budgetRules,
     scope: 'total',
     timeframe,
-    periodStart: period.start,
+    effectiveAt: period.end,
   })
   const budget = budgetRule?.amount ?? 0
   const hasBudget = budgetRule !== null
@@ -391,37 +442,22 @@ export const getCategorySummaryRows = ({
   weekStartsOn: 1
 }): CategorySummaryRow[] => {
   const period = getPeriodInterval(anchorDate, timeframe, weekStartsOn)
-  const periodTransactions = getTransactionsInPeriod({
-    transactions,
-    anchorDate,
-    timeframe,
-    weekStartsOn,
-  })
   const expenseCategories = categories.filter((category) => category.kind === 'expense')
 
   return expenseCategories
     .map((category) => {
-      const spend = periodTransactions
-        .filter(
-          (transaction) =>
-            transaction.type === 'expense' && transaction.categoryId === category.id,
-        )
-        .reduce((sum, transaction) => sum + transaction.amount, 0)
-      const budgetRule = getApplicableBudgetRule({
+      const metric = getExpenseMetric({
+        transactions,
         budgetRules,
-        scope: 'category',
+        period,
         timeframe,
         categoryId: category.id,
-        periodStart: period.start,
       })
-      const budget = budgetRule?.amount ?? 0
-      const hasBudget = budgetRule !== null
-      const remaining = hasBudget ? budget - spend : null
-      const status = !hasBudget || remaining === null
+      const status = !metric.hasBudget || metric.remaining === null
         ? 'unbudgeted'
-        : remaining === 0
+        : metric.remaining === 0
           ? 'exact'
-          : remaining > 0
+          : metric.remaining > 0
             ? 'under'
             : 'over'
 
@@ -429,10 +465,10 @@ export const getCategorySummaryRows = ({
         categoryId: category.id,
         categoryName: category.name,
         archived: category.archived,
-        spend,
-        budget,
-        hasBudget,
-        remaining,
+        spend: metric.spend,
+        budget: metric.budget,
+        hasBudget: metric.hasBudget,
+        remaining: metric.remaining,
         status,
       } satisfies CategorySummaryRow
     })
@@ -491,6 +527,116 @@ export const getRollingTrendSeries = ({
       income: summary.income,
     } satisfies RollingTrendPoint
   })
+}
+
+export const getOverviewTotals = ({
+  transactions,
+  budgetRules,
+  referenceDate,
+  weekStartsOn,
+}: {
+  transactions: Transaction[]
+  budgetRules: BudgetRule[]
+  referenceDate: string | Date
+  weekStartsOn: 1
+}): OverviewSummaryTotals => ({
+  daily: getPeriodSummary({
+    transactions,
+    budgetRules,
+    anchorDate: referenceDate,
+    timeframe: 'daily',
+    weekStartsOn,
+  }),
+  weekly: getPeriodSummary({
+    transactions,
+    budgetRules,
+    anchorDate: referenceDate,
+    timeframe: 'weekly',
+    weekStartsOn,
+  }),
+  monthly: getPeriodSummary({
+    transactions,
+    budgetRules,
+    anchorDate: referenceDate,
+    timeframe: 'monthly',
+    weekStartsOn,
+  }),
+})
+
+export const getOverviewSummaryRows = ({
+  categories,
+  transactions,
+  budgetRules,
+  referenceDate,
+  weekStartsOn,
+}: {
+  categories: Category[]
+  transactions: Transaction[]
+  budgetRules: BudgetRule[]
+  referenceDate: string | Date
+  weekStartsOn: 1
+}) => {
+  const dailyPeriod = getPeriodInterval(referenceDate, 'daily', weekStartsOn)
+  const weeklyPeriod = getPeriodInterval(referenceDate, 'weekly', weekStartsOn)
+  const monthlyPeriod = getPeriodInterval(referenceDate, 'monthly', weekStartsOn)
+  const expenseCategories = categories.filter((category) => category.kind === 'expense')
+
+  return expenseCategories
+    .map((category) => {
+      const daily = getExpenseMetric({
+        transactions,
+        budgetRules,
+        period: dailyPeriod,
+        timeframe: 'daily',
+        categoryId: category.id,
+      })
+      const weekly = getExpenseMetric({
+        transactions,
+        budgetRules,
+        period: weeklyPeriod,
+        timeframe: 'weekly',
+        categoryId: category.id,
+      })
+      const monthly = getExpenseMetric({
+        transactions,
+        budgetRules,
+        period: monthlyPeriod,
+        timeframe: 'monthly',
+        categoryId: category.id,
+      })
+      const monthlyPercentUsed =
+        monthly.budget > 0 ? (monthly.spend / monthly.budget) * 100 : 0
+
+      return {
+        categoryId: category.id,
+        categoryName: category.name,
+        archived: category.archived,
+        dailyBudget: daily.budget,
+        dailySpent: daily.spend,
+        dailyRemaining: daily.remaining,
+        dailyHasBudget: daily.hasBudget,
+        weeklyBudget: weekly.budget,
+        weeklySpent: weekly.spend,
+        weeklyRemaining: weekly.remaining,
+        weeklyHasBudget: weekly.hasBudget,
+        monthlyBudget: monthly.budget,
+        monthlySpent: monthly.spend,
+        monthlyRemaining: monthly.remaining,
+        monthlyHasBudget: monthly.hasBudget,
+        monthlyPercentUsed,
+      } satisfies OverviewSummaryRow
+    })
+    .filter(
+      (row) =>
+        !row.archived ||
+        row.dailySpent > 0 ||
+        row.weeklySpent > 0 ||
+        row.monthlySpent > 0 ||
+        row.dailyHasBudget ||
+        row.weeklyHasBudget ||
+        row.monthlyHasBudget,
+    )
+    .sort((left, right) => left.categoryName.localeCompare(right.categoryName))
 }
 
 export const getCategoryName = (categories: Category[], categoryId: string) =>

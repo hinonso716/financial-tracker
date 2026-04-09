@@ -1,22 +1,22 @@
 import type { FormEvent } from 'react'
 
-import { formatCurrency, formatDisplayDate } from '../lib/finance'
+import {
+  formatCurrency,
+  formatDisplayDateTime,
+} from '../lib/finance'
 import type { BudgetScope, Category, Timeframe } from '../lib/finance'
 
 type BudgetMatrixRow = {
   id: string
   label: string
   daily: {
-    active: { amount: number } | null
-    next: { amount: number; effectiveFrom: string } | null
+    active: { amount: number; effectiveFrom: string } | null
   }
   weekly: {
-    active: { amount: number } | null
-    next: { amount: number; effectiveFrom: string } | null
+    active: { amount: number; effectiveFrom: string } | null
   }
   monthly: {
-    active: { amount: number } | null
-    next: { amount: number; effectiveFrom: string } | null
+    active: { amount: number; effectiveFrom: string } | null
   }
 }
 
@@ -28,7 +28,7 @@ type BudgetManagerProps = {
     amount: string
   }
   activeExpenseCategories: Category[]
-  budgetEffectiveFrom: string
+  budgetAppliedAt: string
   budgetNotice: string
   budgetMatrixRows: BudgetMatrixRow[]
   currency: string
@@ -44,19 +44,13 @@ type BudgetManagerProps = {
 function BudgetManager({
   form,
   activeExpenseCategories,
-  budgetEffectiveFrom,
+  budgetAppliedAt,
   budgetNotice,
   budgetMatrixRows,
   currency,
   onFormChange,
   onSubmit,
 }: BudgetManagerProps) {
-  const timeframeNames: Record<Timeframe, string> = {
-    daily: 'daily',
-    weekly: 'weekly',
-    monthly: 'monthly',
-  }
-
   return (
     <>
       <form className="form-grid" onSubmit={onSubmit}>
@@ -135,17 +129,18 @@ function BudgetManager({
           </label>
 
           <div className="info-card">
-            <span className="info-label">Takes effect</span>
-            <strong>{formatDisplayDate(budgetEffectiveFrom)}</strong>
+            <span className="info-label">Applies now</span>
+            <strong>{formatDisplayDateTime(budgetAppliedAt)}</strong>
             <p>
-              This avoids changing the budget mid-{timeframeNames[form.timeframe]}.
+              Saving a change updates the current {form.timeframe} budget
+              immediately.
             </p>
           </div>
         </div>
 
         <div className="form-actions">
           <button type="submit" className="button button-primary">
-            Schedule budget
+            Save budget change
           </button>
           {budgetNotice ? <p className="notice">{budgetNotice}</p> : null}
         </div>
@@ -172,15 +167,15 @@ function BudgetManager({
                     <td key={timeframe}>
                       <div className="budget-cell">
                         <span>
-                          Active:{' '}
+                          Current:{' '}
                           {snapshot.active
                             ? formatCurrency(snapshot.active.amount, currency)
                             : 'Not set'}
                         </span>
-                        {snapshot.next ? (
+                        {snapshot.active ? (
                           <span className="muted-text">
-                            Next: {formatCurrency(snapshot.next.amount, currency)} from{' '}
-                            {formatDisplayDate(snapshot.next.effectiveFrom)}
+                            Updated:{' '}
+                            {formatDisplayDateTime(snapshot.active.effectiveFrom)}
                           </span>
                         ) : null}
                       </div>

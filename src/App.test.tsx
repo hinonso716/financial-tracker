@@ -36,61 +36,70 @@ describe('App', () => {
     window.localStorage.clear()
   })
 
-  it('supports transaction create, update, and delete flows', async () => {
+  it('uses bottom tabs and supports create, edit, and delete through input and records pages', async () => {
     const user = userEvent.setup()
 
     render(<App />)
 
-    const transactionPanel = screen
+    await user.click(screen.getByRole('button', { name: 'Input' }))
+
+    const inputPanel = screen
       .getByRole('heading', { name: 'Add transaction' })
       .closest('section')
+    expect(inputPanel).not.toBeNull()
 
-    expect(transactionPanel).not.toBeNull()
+    const inputScope = within(inputPanel as HTMLElement)
+    await user.clear(inputScope.getByLabelText('Amount'))
+    await user.type(inputScope.getByLabelText('Amount'), '120')
+    await user.type(inputScope.getByLabelText('Note / description'), 'Lunch')
+    await user.click(inputScope.getByRole('button', { name: 'Save transaction' }))
 
-    const transactionScope = within(transactionPanel as HTMLElement)
-    await user.clear(transactionScope.getByLabelText('Amount'))
-    await user.type(transactionScope.getByLabelText('Amount'), '120')
-    await user.type(transactionScope.getByLabelText('Note / description'), 'Lunch')
-    await user.click(transactionScope.getByRole('button', { name: 'Save transaction' }))
-
+    await user.click(screen.getByRole('button', { name: 'Overview' }))
     expect(screen.getByTestId('summary-spend')).toHaveTextContent('HK$120.00')
+
+    await user.click(screen.getByRole('button', { name: 'Records' }))
     expect(screen.getByTestId('transactions-table')).toHaveTextContent('Lunch')
 
     await user.click(screen.getByRole('button', { name: 'Edit' }))
+    expect(screen.getByRole('heading', { name: 'Edit transaction' })).toBeInTheDocument()
 
     const editPanel = screen
       .getByRole('heading', { name: 'Edit transaction' })
       .closest('section')
     expect(editPanel).not.toBeNull()
-
     const editScope = within(editPanel as HTMLElement)
+
     await user.clear(editScope.getByLabelText('Amount'))
     await user.type(editScope.getByLabelText('Amount'), '150')
     await user.click(editScope.getByRole('button', { name: 'Update transaction' }))
 
+    await user.click(screen.getByRole('button', { name: 'Overview' }))
     expect(screen.getByTestId('summary-spend')).toHaveTextContent('HK$150.00')
 
+    await user.click(screen.getByRole('button', { name: 'Records' }))
     await user.click(screen.getByRole('button', { name: 'Delete' }))
 
+    await user.click(screen.getByRole('button', { name: 'Overview' }))
     expect(screen.getByTestId('summary-spend')).toHaveTextContent('HK$0.00')
-    expect(screen.getByTestId('transactions-table')).not.toHaveTextContent('Lunch')
   })
 
-  it('supports category creation, rename, and archive flows', async () => {
+  it('supports category creation, rename, and archive on the manage tab', async () => {
     const user = userEvent.setup()
 
     render(<App />)
 
-    const categoryPanel = screen
-      .getByRole('heading', { name: 'Manage categories' })
+    await user.click(screen.getByRole('button', { name: 'Manage' }))
+
+    const managePanel = screen
+      .getByRole('heading', { name: 'Categories & budgets' })
       .closest('section')
-    expect(categoryPanel).not.toBeNull()
+    expect(managePanel).not.toBeNull()
 
-    const categoryScope = within(categoryPanel as HTMLElement)
-    await user.type(categoryScope.getByLabelText('Name'), 'Pets')
-    await user.click(categoryScope.getByRole('button', { name: 'Add category' }))
+    const manageScope = within(managePanel as HTMLElement)
+    await user.type(manageScope.getByLabelText('Name'), 'Pets')
+    await user.click(manageScope.getByRole('button', { name: 'Add category' }))
 
-    const petInput = categoryScope.getByDisplayValue('Pets')
+    const petInput = manageScope.getByDisplayValue('Pets')
     expect(petInput).toBeInTheDocument()
 
     await user.clear(petInput)
@@ -100,13 +109,13 @@ describe('App', () => {
 
     const petScope = within(petRow as HTMLElement)
     await user.click(petScope.getByRole('button', { name: 'Save' }))
-    expect(categoryScope.getByDisplayValue('Pet Care')).toBeInTheDocument()
+    expect(manageScope.getByDisplayValue('Pet Care')).toBeInTheDocument()
 
     await user.click(petScope.getByRole('button', { name: 'Archive' }))
     expect(petScope.getByText('Archived')).toBeInTheDocument()
   })
 
-  it('updates cards and tables when switching timeframe and keeps income separate from budget usage', async () => {
+  it('applies budget changes immediately and renders the overview table plus separated charts', async () => {
     const user = userEvent.setup()
 
     setStoredState({
@@ -114,10 +123,10 @@ describe('App', () => {
         {
           id: 'expense-april',
           type: 'expense',
-          categoryId: 'expense-dining',
+          categoryId: 'expense-food',
           amount: 120,
           occurredAt: '2026-04-10',
-          note: 'Lunch',
+          note: 'Groceries',
         },
         {
           id: 'income-april',
@@ -127,59 +136,36 @@ describe('App', () => {
           occurredAt: '2026-04-10',
           note: 'Salary',
         },
-        {
-          id: 'expense-march',
-          type: 'expense',
-          categoryId: 'expense-travel',
-          amount: 80,
-          occurredAt: '2026-03-31',
-          note: 'Taxi',
-        },
-      ],
-      budgetRules: [
-        {
-          id: 'week-budget',
-          scope: 'total',
-          timeframe: 'weekly',
-          amount: 500,
-          effectiveFrom: '2026-04-06',
-        },
-        {
-          id: 'month-budget-march',
-          scope: 'total',
-          timeframe: 'monthly',
-          amount: 800,
-          effectiveFrom: '2026-03-01',
-        },
-        {
-          id: 'month-budget-april',
-          scope: 'total',
-          timeframe: 'monthly',
-          amount: 900,
-          effectiveFrom: '2026-04-01',
-        },
       ],
     })
 
     render(<App />)
 
-    expect(screen.getByTestId('summary-spend')).toHaveTextContent('HK$120.00')
-    expect(screen.getByTestId('summary-budget')).toHaveTextContent('HK$500.00')
-    expect(screen.getByTestId('summary-remaining')).toHaveTextContent('+HK$380.00')
+    expect(screen.getByTestId('summary-budget')).toHaveTextContent('No budget')
+
+    await user.click(screen.getByRole('button', { name: 'Manage' }))
+
+    const budgetPanel = screen
+      .getByRole('heading', { name: 'Change budgets instantly' })
+      .closest('section')
+    expect(budgetPanel).not.toBeNull()
+
+    const budgetScope = within(budgetPanel as HTMLElement)
+    await user.selectOptions(budgetScope.getByLabelText('Timeframe'), 'monthly')
+    await user.clear(budgetScope.getByLabelText('Amount'))
+    await user.type(budgetScope.getByLabelText('Amount'), '900')
+    await user.click(budgetScope.getByRole('button', { name: 'Save budget change' }))
+
+    await user.click(screen.getByRole('button', { name: 'Overview' }))
+
+    expect(screen.getByTestId('summary-budget')).toHaveTextContent('HK$900.00')
+    expect(screen.getByTestId('summary-remaining')).toHaveTextContent('+HK$780.00')
     expect(screen.getByTestId('summary-income')).toHaveTextContent('HK$1,000.00')
-    expect(screen.getByTestId('summary-net')).toHaveTextContent('+HK$880.00')
-    expect(screen.getByTestId('transactions-table')).toHaveTextContent('Lunch')
-    expect(screen.getByTestId('transactions-table')).not.toHaveTextContent('Taxi')
+    expect(screen.getByTestId('overview-summary-table')).toBeInTheDocument()
     expect(screen.getByTestId('trend-chart')).toBeInTheDocument()
-
-    await user.click(screen.getByRole('button', { name: 'Month' }))
-    await user.click(screen.getByRole('button', { name: 'Previous' }))
-
-    expect(screen.getByTestId('period-label')).toHaveTextContent('March 2026')
-    expect(screen.getByTestId('summary-spend')).toHaveTextContent('HK$80.00')
-    expect(screen.getByTestId('summary-budget')).toHaveTextContent('HK$800.00')
-    expect(screen.getByTestId('summary-remaining')).toHaveTextContent('+HK$720.00')
-    expect(screen.getByTestId('transactions-table')).toHaveTextContent('Taxi')
-    expect(screen.getByTestId('transactions-table')).not.toHaveTextContent('Lunch')
+    expect(screen.getByTestId('category-chart')).toBeInTheDocument()
+    expect(screen.getByTestId('overview-summary-table')).toHaveTextContent(
+      'Daily Budget (A)',
+    )
   })
 })
