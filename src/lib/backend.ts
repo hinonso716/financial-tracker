@@ -121,7 +121,7 @@ const missingFirebaseKeys = REQUIRED_FIREBASE_ENV_KEYS.filter(
 const hasFirebaseConfig = missingFirebaseKeys.length === 0
 
 const getConfigErrorMessage = () =>
-  `Firebase is not configured yet. Add ${missingFirebaseKeys.join(', ')} to your local .env file and GitHub Pages build variables.`
+  `Firebase is not configured yet. Add ${missingFirebaseKeys.join(', ')} to your local .env file and deployment build variables.`
 
 const cloneAppState = (state: AppState): AppState =>
   typeof structuredClone === 'function'
@@ -233,11 +233,6 @@ const toAppError = (error: unknown) => {
 
   return new Error('Something went wrong. Please try again.')
 }
-
-const isCompactViewport = () =>
-  typeof window !== 'undefined' &&
-  typeof window.matchMedia === 'function' &&
-  window.matchMedia('(max-width: 760px)').matches
 
 const createConfigErrorBackend = (): AppBackend => ({
   subscribeToAuth(listener) {
@@ -604,11 +599,6 @@ const createFirebaseBackend = (): AppBackend => {
 
     async signInWithGoogle() {
       try {
-        if (isCompactViewport()) {
-          await signInWithRedirect(auth, provider)
-          return
-        }
-
         await signInWithPopup(auth, provider)
       } catch (error) {
         const firebaseCode = getFirebaseErrorCode(error)

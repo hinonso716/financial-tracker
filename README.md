@@ -1,8 +1,12 @@
 # Financial Tracker
 
-A mobile-first React + TypeScript financial tracker with Firebase accounts, Firestore-backed per-user data, GitHub Pages hosting for the web app, and Capacitor wrappers for iPhone and Android.
+A mobile-first React + TypeScript financial tracker with Firebase accounts, Firestore-backed per-user data, Firebase Hosting as the primary web target, GitHub Pages as a legacy fallback build, and Capacitor wrappers for iPhone and Android.
 
-Live site:
+Primary web host after Firebase Hosting deploy:
+
+`https://financial-tracker-5128e.firebaseapp.com/`
+
+Legacy GitHub Pages URL:
 
 `https://hinonso716.github.io/financial-tracker/`
 
@@ -16,6 +20,15 @@ Live site:
 - Four app sections: transaction input, categories and budgets, transaction records, and finance overview
 - Mobile-first layout with phone-friendly record cards and overview summary cards
 - Daily, weekly, and monthly budgets that apply immediately
+
+## Why Firebase Hosting
+
+Google sign-in on phones is more reliable when the web app is served from Firebase Hosting instead of GitHub Pages. This repo now keeps:
+
+- Firebase Hosting as the main production web target
+- GitHub Pages as a secondary legacy build target
+
+For the best mobile auth behavior, use the Firebase Hosting URL above.
 
 ## Local Setup
 
@@ -33,12 +46,16 @@ cp .env.example .env
 
 3. In Firebase Console:
 
-- create a Firebase project
+- create or open the `financial-tracker-5128e` Firebase project
 - enable Firestore Database
 - enable Authentication
 - enable `Email/Password`
 - enable `Google`
-- add `localhost` and `hinonso716.github.io` to Authentication > Settings > Authorized domains
+- make sure these authorized domains are available:
+  - `localhost`
+  - `hinonso716.github.io`
+  - `financial-tracker-5128e.firebaseapp.com`
+  - `financial-tracker-5128e.web.app`
 
 4. Apply the Firestore rules from [`firestore.rules`](./firestore.rules).
 
@@ -56,15 +73,36 @@ npm run lint
 npm test
 npm run build
 npm run build:web
+npm run build:hosting
+npm run build:pages
 npm run build:native
+npm run hosting:serve
+npm run hosting:deploy
 npm run cap:sync
 npm run ios:open
 npm run android:open
 ```
 
-## GitHub Pages + Firebase Config
+## Deployment
 
-The GitHub Pages workflow builds the app from `main` and expects these repository variables in GitHub:
+### Firebase Hosting
+
+This repo includes [`firebase.json`](./firebase.json) and [`.firebaserc`](./.firebaserc) for the `financial-tracker-5128e` project.
+
+To deploy manually:
+
+```bash
+npx firebase-tools login --no-localhost
+npm run hosting:deploy
+```
+
+The hosting build uses root `/` asset paths and outputs to `dist/`.
+
+### GitHub Pages
+
+The GitHub Pages workflow remains in place as a fallback/legacy deployment and now builds with the Pages-specific base path.
+
+Required GitHub repository variables:
 
 - `VITE_FIREBASE_API_KEY`
 - `VITE_FIREBASE_AUTH_DOMAIN`
@@ -72,8 +110,6 @@ The GitHub Pages workflow builds the app from `main` and expects these repositor
 - `VITE_FIREBASE_STORAGE_BUCKET`
 - `VITE_FIREBASE_MESSAGING_SENDER_ID`
 - `VITE_FIREBASE_APP_ID`
-
-Add them under `Settings > Secrets and variables > Actions > Variables`.
 
 ## Data Behavior
 
@@ -90,4 +126,4 @@ The current repo still includes Capacitor iOS and Android projects. The web app 
 - iPhone: run `npm run cap:sync`, then `npm run ios:open`
 - Android: run `npm run cap:sync`, then `npm run android:open`
 
-Those wrappers are not the focus of this Firebase web phase, but the shared UI is kept compatible with narrow phone layouts.
+Those wrappers are not the focus of this Firebase Hosting phase, but the shared UI is kept compatible with narrow phone layouts.

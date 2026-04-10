@@ -9,8 +9,10 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-pages
 dist-native
 dist-ssr
+.firebase
 .env
 .env.*
 !.env.example
