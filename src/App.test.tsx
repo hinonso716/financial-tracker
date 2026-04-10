@@ -51,16 +51,21 @@ const createTransaction = async (
   user: ReturnType<typeof userEvent.setup>,
   {
     amount,
-    note,
+    description,
+    remarks,
   }: {
     amount: string
-    note: string
+    description: string
+    remarks?: string
   },
 ) => {
   await user.click(screen.getByRole('button', { name: 'Input' }))
   await user.clear(screen.getByLabelText('Amount'))
   await user.type(screen.getByLabelText('Amount'), amount)
-  await user.type(screen.getByLabelText('Note / description'), note)
+  await user.type(screen.getByLabelText('Description'), description)
+  if (remarks) {
+    await user.type(screen.getByLabelText('Remarks'), remarks)
+  }
   await user.click(screen.getByRole('button', { name: 'Save transaction' }))
 }
 
@@ -71,6 +76,8 @@ const buildSeedState = (partialState?: Partial<AppState>): AppState => ({
   preferences: {
     currency: 'HKD',
     weekStartsOn: 1,
+    showDailyBudget: true,
+    showWeeklyBudget: true,
   },
   ...partialState,
 })
@@ -98,7 +105,11 @@ describe('App', () => {
     expect(screen.queryByRole('button', { name: 'Overview' })).not.toBeInTheDocument()
 
     await signUpWithEmail(user)
-    await createTransaction(user, { amount: '120', note: 'Lunch' })
+    await createTransaction(user, {
+      amount: '120',
+      description: 'Lunch',
+      remarks: 'Work',
+    })
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
     expect(screen.getByRole('heading', { name: 'Start your own tracker' })).toBeInTheDocument()
@@ -107,6 +118,7 @@ describe('App', () => {
     await user.click(screen.getByRole('button', { name: 'Records' }))
 
     expect(screen.getByTestId('transactions-mobile-list')).toHaveTextContent('Lunch')
+    expect(screen.getByTestId('transactions-mobile-list')).toHaveTextContent('Work')
     expect(screen.getByTestId('transactions-table')).toHaveTextContent('Lunch')
   })
 
@@ -145,7 +157,7 @@ describe('App', () => {
             categoryId: 'expense-food',
             amount: 120,
             occurredAt: '2026-04-10',
-            note: 'Groceries',
+            description: 'Groceries',
           },
           {
             id: 'income-salary',
@@ -153,23 +165,24 @@ describe('App', () => {
             categoryId: 'income-salary',
             amount: 2400,
             occurredAt: '2026-04-10',
-            note: 'Payroll',
+            description: 'Payroll',
           },
         ],
         budgetRules: [
-          {
-            id: 'budget-monthly-total',
-            scope: 'total',
-            timeframe: 'monthly',
-            amount: 900,
-            effectiveFrom: '2026-04-01T00:00:00.000Z',
-          },
           {
             id: 'budget-monthly-food',
             scope: 'category',
             timeframe: 'monthly',
             categoryId: 'expense-food',
             amount: 500,
+            effectiveFrom: '2026-04-01T00:00:00.000Z',
+          },
+          {
+            id: 'budget-monthly-dining',
+            scope: 'category',
+            timeframe: 'monthly',
+            categoryId: 'expense-dining',
+            amount: 400,
             effectiveFrom: '2026-04-01T00:00:00.000Z',
           },
         ],
@@ -182,6 +195,7 @@ describe('App', () => {
     expect(screen.getByTestId('summary-remaining')).toHaveTextContent('+HK$780.00')
     expect(screen.getByTestId('summary-income')).toHaveTextContent('HK$2,400.00')
     expect(screen.getByTestId('overview-summary-cards')).toHaveTextContent('Food')
+    expect(screen.getByTestId('monthly-report-card')).toHaveTextContent('Balance')
 
     await userEvent.setup().click(screen.getByRole('button', { name: 'Records' }))
     expect(screen.getByTestId('transactions-mobile-list')).toHaveTextContent('Groceries')
@@ -193,7 +207,10 @@ describe('App', () => {
     render(<App />)
 
     await signUpWithEmail(user, { email: 'first@example.com' })
-    await createTransaction(user, { amount: '88', note: 'First account expense' })
+    await createTransaction(user, {
+      amount: '88',
+      description: 'First account expense',
+    })
 
     await user.click(screen.getByRole('button', { name: 'Sign out' }))
 

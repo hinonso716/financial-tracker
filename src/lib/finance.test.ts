@@ -1,12 +1,38 @@
 import { describe, expect, it } from 'vitest'
 
+import { DEFAULT_PREFERENCES } from './defaults'
 import {
   getApplicableBudgetRule,
+  getMonthlyReport,
   getOverviewSummaryRows,
   getPeriodSummary,
   getTransactionsInPeriod,
 } from './finance'
 import type { BudgetRule, Category, Transaction } from './finance'
+
+const categories: Category[] = [
+  {
+    id: 'expense-food',
+    name: 'Food',
+    kind: 'expense',
+    archived: false,
+    sortOrder: 0,
+  },
+  {
+    id: 'expense-travel',
+    name: 'Travel',
+    kind: 'expense',
+    archived: false,
+    sortOrder: 1,
+  },
+  {
+    id: 'income-salary',
+    name: 'Salary',
+    kind: 'income',
+    archived: false,
+    sortOrder: 0,
+  },
+]
 
 describe('finance helpers', () => {
   it('groups weekly periods starting on Monday', () => {
@@ -48,25 +74,28 @@ describe('finance helpers', () => {
     ])
   })
 
-  it('uses the latest mid-period budget change for the current period immediately', () => {
+  it('updates current weekly budget immediately when monthly budget changes mid-week', () => {
     const budgetRules: BudgetRule[] = [
       {
-        id: 'budget-weekly-original',
-        scope: 'total',
-        timeframe: 'weekly',
-        amount: 300,
-        effectiveFrom: '2026-04-06T00:00:00.000Z',
+        id: 'food-april-start',
+        scope: 'category',
+        timeframe: 'monthly',
+        categoryId: 'expense-food',
+        amount: 3000,
+        effectiveFrom: '2026-04-01T00:00:00.000Z',
       },
       {
-        id: 'budget-weekly-updated',
-        scope: 'total',
-        timeframe: 'weekly',
-        amount: 500,
+        id: 'food-april-update',
+        scope: 'category',
+        timeframe: 'monthly',
+        categoryId: 'expense-food',
+        amount: 3600,
         effectiveFrom: '2026-04-10T09:00:00.000Z',
       },
     ]
 
     const summary = getPeriodSummary({
+      categories,
       transactions: [
         {
           id: 'txn-current-week',
@@ -80,32 +109,36 @@ describe('finance helpers', () => {
       anchorDate: '2026-04-10',
       timeframe: 'weekly',
       weekStartsOn: 1,
+      preferences: DEFAULT_PREFERENCES,
     })
 
-    expect(summary.budget).toBe(500)
-    expect(summary.remaining).toBe(380)
+    expect(summary.budget).toBe(760)
+    expect(summary.remaining).toBe(640)
   })
 
-  it('keeps the last budget active within a closed period when revisiting history', () => {
+  it('keeps the last monthly category budget active within a closed period when revisiting history', () => {
     const rules: BudgetRule[] = [
       {
-        id: 'budget-april-start',
-        scope: 'total',
+        id: 'food-april-start',
+        scope: 'category',
         timeframe: 'monthly',
+        categoryId: 'expense-food',
         amount: 5000,
         effectiveFrom: '2026-04-01T00:00:00.000Z',
       },
       {
-        id: 'budget-april-update',
-        scope: 'total',
+        id: 'food-april-update',
+        scope: 'category',
         timeframe: 'monthly',
+        categoryId: 'expense-food',
         amount: 6200,
         effectiveFrom: '2026-04-20T12:00:00.000Z',
       },
       {
-        id: 'budget-may',
-        scope: 'total',
+        id: 'food-may',
+        scope: 'category',
         timeframe: 'monthly',
+        categoryId: 'expense-food',
         amount: 7000,
         effectiveFrom: '2026-05-02T09:00:00.000Z',
       },
@@ -113,14 +146,16 @@ describe('finance helpers', () => {
 
     const aprilRule = getApplicableBudgetRule({
       budgetRules: rules,
-      scope: 'total',
+      scope: 'category',
       timeframe: 'monthly',
+      categoryId: 'expense-food',
       effectiveAt: '2026-04-30T23:59:59.999Z',
     })
     const mayRule = getApplicableBudgetRule({
       budgetRules: rules,
-      scope: 'total',
+      scope: 'category',
       timeframe: 'monthly',
+      categoryId: 'expense-food',
       effectiveAt: '2026-05-31T23:59:59.999Z',
     })
 
@@ -128,45 +163,14 @@ describe('finance helpers', () => {
     expect(mayRule?.amount).toBe(7000)
   })
 
-  it('builds overview summary rows with remaining formulas and safe percent handling', () => {
-    const categories: Category[] = [
-      {
-        id: 'expense-food',
-        name: 'Food',
-        kind: 'expense',
-        archived: false,
-      },
-      {
-        id: 'expense-travel',
-        name: 'Travel',
-        kind: 'expense',
-        archived: false,
-      },
-    ]
-
+  it('builds overview rows from monthly budgets and keeps percent calculations safe', () => {
     const budgetRules: BudgetRule[] = [
-      {
-        id: 'food-daily',
-        scope: 'category',
-        timeframe: 'daily',
-        categoryId: 'expense-food',
-        amount: 100,
-        effectiveFrom: '2026-04-01T00:00:00.000Z',
-      },
-      {
-        id: 'food-weekly',
-        scope: 'category',
-        timeframe: 'weekly',
-        categoryId: 'expense-food',
-        amount: 400,
-        effectiveFrom: '2026-04-01T00:00:00.000Z',
-      },
       {
         id: 'food-monthly',
         scope: 'category',
         timeframe: 'monthly',
         categoryId: 'expense-food',
-        amount: 1000,
+        amount: 3000,
         effectiveFrom: '2026-04-01T00:00:00.000Z',
       },
     ]
@@ -201,6 +205,7 @@ describe('finance helpers', () => {
       budgetRules,
       referenceDate: '2026-04-10',
       weekStartsOn: 1,
+      preferences: DEFAULT_PREFERENCES,
     })
 
     const foodRow = rows.find((row) => row.categoryId === 'expense-food')
@@ -210,14 +215,74 @@ describe('finance helpers', () => {
       dailyBudget: 100,
       dailySpent: 60,
       dailyRemaining: 40,
-      weeklyBudget: 400,
+      weeklyBudget: 700,
       weeklySpent: 100,
-      weeklyRemaining: 300,
-      monthlyBudget: 1000,
+      weeklyRemaining: 600,
+      monthlyBudget: 3000,
       monthlySpent: 200,
-      monthlyRemaining: 800,
+      monthlyRemaining: 2800,
     })
-    expect(foodRow?.monthlyPercentUsed).toBeCloseTo(20)
+    expect(foodRow?.monthlyPercentUsed).toBeCloseTo(200 / 3000 * 100)
     expect(travelRow?.monthlyPercentUsed).toBe(0)
+  })
+
+  it('builds a monthly report with grouped totals and previous-month comparison', () => {
+    const transactions: Transaction[] = [
+      {
+        id: 'salary-apr',
+        type: 'income',
+        categoryId: 'income-salary',
+        amount: 10000,
+        occurredAt: '2026-04-05',
+      },
+      {
+        id: 'food-apr',
+        type: 'expense',
+        categoryId: 'expense-food',
+        amount: 1200,
+        occurredAt: '2026-04-08',
+      },
+      {
+        id: 'travel-apr',
+        type: 'expense',
+        categoryId: 'expense-travel',
+        amount: 800,
+        occurredAt: '2026-04-18',
+      },
+      {
+        id: 'salary-mar',
+        type: 'income',
+        categoryId: 'income-salary',
+        amount: 9000,
+        occurredAt: '2026-03-05',
+      },
+      {
+        id: 'food-mar',
+        type: 'expense',
+        categoryId: 'expense-food',
+        amount: 3000,
+        occurredAt: '2026-03-18',
+      },
+    ]
+
+    const report = getMonthlyReport({
+      categories,
+      transactions,
+      anchorDate: '2026-04-10',
+    })
+
+    expect(report.monthLabel).toBe('April 2026')
+    expect(report.incomeTotal).toBe(10000)
+    expect(report.expenseTotal).toBe(2000)
+    expect(report.balance).toBe(8000)
+    expect(report.incomeRows[0]).toMatchObject({
+      categoryId: 'income-salary',
+      amount: 10000,
+    })
+    expect(report.expenseRows.map((row) => row.categoryId)).toEqual([
+      'expense-food',
+      'expense-travel',
+    ])
+    expect(report.balanceChangePct).toBeCloseTo(((8000 - 6000) / 6000) * 100)
   })
 })

@@ -1,30 +1,24 @@
 import type { FormEvent } from 'react'
 
-import {
-  formatCurrency,
-  formatDisplayDateTime,
-} from '../lib/finance'
-import type { BudgetScope, Category, Timeframe } from '../lib/finance'
+import { formatCurrency, formatDisplayDateTime } from '../lib/finance'
+import type { Category } from '../lib/finance'
+
+type BudgetMatrixCell = {
+  active: { amount: number; effectiveFrom: string } | null
+  visibility: 'visible' | 'hidden'
+}
 
 type BudgetMatrixRow = {
   id: string
   label: string
-  daily: {
-    active: { amount: number; effectiveFrom: string } | null
-  }
-  weekly: {
-    active: { amount: number; effectiveFrom: string } | null
-  }
-  monthly: {
-    active: { amount: number; effectiveFrom: string } | null
-  }
+  daily: BudgetMatrixCell
+  weekly: BudgetMatrixCell
+  monthly: BudgetMatrixCell
 }
 
 type BudgetManagerProps = {
   form: {
-    scope: BudgetScope
     categoryId: string
-    timeframe: Timeframe
     amount: string
   }
   activeExpenseCategories: Category[]
@@ -32,13 +26,36 @@ type BudgetManagerProps = {
   budgetNotice: string
   budgetMatrixRows: BudgetMatrixRow[]
   currency: string
+  showDailyBudget: boolean
+  showWeeklyBudget: boolean
   onFormChange: (nextForm: {
-    scope: BudgetScope
     categoryId: string
-    timeframe: Timeframe
     amount: string
   }) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
+  onToggleDailyBudget: (checked: boolean) => void
+  onToggleWeeklyBudget: (checked: boolean) => void
+}
+
+const renderBudgetCell = (cell: BudgetMatrixCell, currency: string) => {
+  if (cell.visibility === 'hidden') {
+    return {
+      label: 'Hidden',
+      helper: 'Turn the toggle on to show this derived budget.',
+    }
+  }
+
+  if (!cell.active) {
+    return {
+      label: 'Not set',
+      helper: 'Add or update a monthly category budget first.',
+    }
+  }
+
+  return {
+    label: formatCurrency(cell.active.amount, currency),
+    helper: `Updated: ${formatDisplayDateTime(cell.active.effectiveFrom)}`,
+  }
 }
 
 function BudgetManager({
@@ -48,50 +65,24 @@ function BudgetManager({
   budgetNotice,
   budgetMatrixRows,
   currency,
+  showDailyBudget,
+  showWeeklyBudget,
   onFormChange,
   onSubmit,
+  onToggleDailyBudget,
+  onToggleWeeklyBudget,
 }: BudgetManagerProps) {
   return (
     <>
       <form className="form-grid" onSubmit={onSubmit}>
+        <p className="page-description">
+          Enter monthly budgets only. Overall budget is automatically added up from all
+          expense categories.
+        </p>
+
         <div className="field-row">
           <label className="field">
-            <span>Budget target</span>
-            <select
-              value={form.scope}
-              onChange={(event) =>
-                onFormChange({
-                  ...form,
-                  scope: event.target.value as BudgetScope,
-                })
-              }
-            >
-              <option value="total">Overall budget</option>
-              <option value="category">Specific category</option>
-            </select>
-          </label>
-
-          <label className="field">
-            <span>Timeframe</span>
-            <select
-              value={form.timeframe}
-              onChange={(event) =>
-                onFormChange({
-                  ...form,
-                  timeframe: event.target.value as Timeframe,
-                })
-              }
-            >
-              <option value="daily">Daily</option>
-              <option value="weekly">Weekly</option>
-              <option value="monthly">Monthly</option>
-            </select>
-          </label>
-        </div>
-
-        {form.scope === 'category' ? (
-          <label className="field">
-            <span>Category</span>
+            <span>Expense category</span>
             <select
               value={form.categoryId}
               onChange={(event) =>
@@ -108,11 +99,9 @@ function BudgetManager({
               ))}
             </select>
           </label>
-        ) : null}
 
-        <div className="field-row">
           <label className="field">
-            <span>Amount</span>
+            <span>Monthly budget</span>
             <input
               type="number"
               min="0"
@@ -127,22 +116,47 @@ function BudgetManager({
               }
             />
           </label>
+        </div>
 
+        <div className="field-row">
+          <label className="toggle-card">
+            <div>
+              <span>Show daily budget</span>
+              <p>Derived from the current monthly budget.</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={showDailyBudget}
+              onChange={(event) => onToggleDailyBudget(event.target.checked)}
+            />
+          </label>
+
+          <label className="toggle-card">
+            <div>
+              <span>Show weekly budget</span>
+              <p>Derived from monthly budgets across the selected week.</p>
+            </div>
+            <input
+              type="checkbox"
+              checked={showWeeklyBudget}
+              onChange={(event) => onToggleWeeklyBudget(event.target.checked)}
+            />
+          </label>
+        </div>
+
+        <div className="field-row">
           <div className="info-card">
             <span className="info-label">Applies now</span>
             <strong>{formatDisplayDateTime(budgetAppliedAt)}</strong>
-            <p>
-              Saving a change updates the current {form.timeframe} budget
-              immediately.
-            </p>
+            <p>Saving a change updates the active monthly budget immediately.</p>
           </div>
-        </div>
 
-        <div className="form-actions">
-          <button type="submit" className="button button-primary">
-            Save budget change
-          </button>
-          {budgetNotice ? <p className="notice">{budgetNotice}</p> : null}
+          <div className="form-actions inline-actions">
+            <button type="submit" className="button button-primary">
+              Save monthly budget
+            </button>
+            {budgetNotice ? <p className="notice">{budgetNotice}</p> : null}
+          </div>
         </div>
       </form>
 
@@ -154,22 +168,14 @@ function BudgetManager({
             </div>
 
             <div className="budget-matrix-card-body">
-              {(['daily', 'weekly', 'monthly'] as Timeframe[]).map((timeframe) => {
-                const snapshot = row[timeframe]
+              {(['monthly', 'daily', 'weekly'] as const).map((timeframe) => {
+                const details = renderBudgetCell(row[timeframe], currency)
 
                 return (
                   <div className="budget-cell" key={timeframe}>
                     <strong>{timeframe[0].toUpperCase() + timeframe.slice(1)}</strong>
-                    <span>
-                      {snapshot.active
-                        ? formatCurrency(snapshot.active.amount, currency)
-                        : 'Not set'}
-                    </span>
-                    {snapshot.active ? (
-                      <span className="muted-text">
-                        Updated: {formatDisplayDateTime(snapshot.active.effectiveFrom)}
-                      </span>
-                    ) : null}
+                    <span>{details.label}</span>
+                    <span className="muted-text">{details.helper}</span>
                   </div>
                 )
               })}
@@ -182,34 +188,24 @@ function BudgetManager({
         <table className="data-table">
           <thead>
             <tr>
-              <th>Target</th>
-              <th>Daily</th>
-              <th>Weekly</th>
-              <th>Monthly</th>
+              <th>Category</th>
+              <th>Monthly Input</th>
+              <th>Daily Display</th>
+              <th>Weekly Display</th>
             </tr>
           </thead>
           <tbody>
             {budgetMatrixRows.map((row) => (
               <tr key={row.id}>
                 <th>{row.label}</th>
-                {(['daily', 'weekly', 'monthly'] as Timeframe[]).map((timeframe) => {
-                  const snapshot = row[timeframe]
+                {(['monthly', 'daily', 'weekly'] as const).map((timeframe) => {
+                  const details = renderBudgetCell(row[timeframe], currency)
 
                   return (
                     <td key={timeframe}>
                       <div className="budget-cell">
-                        <span>
-                          Current:{' '}
-                          {snapshot.active
-                            ? formatCurrency(snapshot.active.amount, currency)
-                            : 'Not set'}
-                        </span>
-                        {snapshot.active ? (
-                          <span className="muted-text">
-                            Updated:{' '}
-                            {formatDisplayDateTime(snapshot.active.effectiveFrom)}
-                          </span>
-                        ) : null}
+                        <span>{details.label}</span>
+                        <span className="muted-text">{details.helper}</span>
                       </div>
                     </td>
                   )

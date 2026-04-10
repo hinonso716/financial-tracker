@@ -1,5 +1,6 @@
 import type { FormEvent } from 'react'
 
+import SearchableCategorySelect from './SearchableCategorySelect'
 import type { Category, TransactionType } from '../lib/finance'
 
 type TransactionEditorProps = {
@@ -9,7 +10,8 @@ type TransactionEditorProps = {
     categoryId: string
     amount: string
     occurredAt: string
-    note: string
+    description: string
+    remarks: string
   }
   categoryOptions: Category[]
   onFormChange: (nextForm: {
@@ -17,7 +19,8 @@ type TransactionEditorProps = {
     categoryId: string
     amount: string
     occurredAt: string
-    note: string
+    description: string
+    remarks: string
   }) => void
   onSubmit: (event: FormEvent<HTMLFormElement>) => void
   onCancel: () => void
@@ -50,24 +53,17 @@ function TransactionEditor({
           </select>
         </label>
 
-        <label className="field">
-          <span>Category</span>
-          <select
-            value={form.categoryId}
-            onChange={(event) =>
-              onFormChange({
-                ...form,
-                categoryId: event.target.value,
-              })
-            }
-          >
-            {categoryOptions.map((category) => (
-              <option key={category.id} value={category.id}>
-                {category.name}
-              </option>
-            ))}
-          </select>
-        </label>
+        <SearchableCategorySelect
+          label="Category"
+          value={form.categoryId}
+          options={categoryOptions}
+          onChange={(categoryId) =>
+            onFormChange({
+              ...form,
+              categoryId,
+            })
+          }
+        />
       </div>
 
       <div className="field-row">
@@ -104,20 +100,37 @@ function TransactionEditor({
         </label>
       </div>
 
-      <label className="field">
-        <span>Note / description</span>
-        <textarea
-          rows={3}
-          value={form.note}
-          onChange={(event) =>
-            onFormChange({
-              ...form,
-              note: event.target.value,
-            })
-          }
-          placeholder="Optional details such as merchant, trip, or bill context"
-        />
-      </label>
+      <div className="field-row">
+        <label className="field">
+          <span>Description</span>
+          <input
+            type="text"
+            value={form.description}
+            onChange={(event) =>
+              onFormChange({
+                ...form,
+                description: event.target.value,
+              })
+            }
+            placeholder="Lunch, Uber ride, Salary..."
+          />
+        </label>
+
+        <label className="field">
+          <span>Remarks</span>
+          <input
+            type="text"
+            value={form.remarks}
+            onChange={(event) =>
+              onFormChange({
+                ...form,
+                remarks: event.target.value,
+              })
+            }
+            placeholder="Work, family, travel, reimbursement..."
+          />
+        </label>
+      </div>
 
       <div className="form-actions">
         <button type="submit" className="button button-primary">

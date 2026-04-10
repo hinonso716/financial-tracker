@@ -5,6 +5,7 @@ import BottomNav from './BottomNav'
 import BudgetManager from './BudgetManager'
 import CategoryBudgetChart from './CategoryBudgetChart'
 import CategoryManager from './CategoryManager'
+import MonthlyReportCard from './MonthlyReportCard'
 import OverviewSummaryTable from './OverviewSummaryTable'
 import Panel from './Panel'
 import SummaryCard from './SummaryCard'
@@ -25,12 +26,15 @@ import {
   getCategoryName,
   getCategoryOptions,
   getCategorySummaryRows,
+  getMonthlyReport,
   getNow,
   getOverviewSummaryRows,
   getOverviewTotals,
   getPeriodInterval,
   getPeriodSummary,
   getRollingTrendSeries,
+  getTransactionDescription,
+  getTransactionRemarks,
   getTransactionsInPeriod,
   parseDateValue,
   shiftAnchorDate,
@@ -38,10 +42,10 @@ import {
 import type {
   AppState,
   BudgetRule,
-  BudgetScope,
   Category,
   CategoryKind,
   OverviewSummaryRow,
+  Preferences,
   Timeframe,
   Transaction,
   TransactionType,
@@ -55,13 +59,12 @@ type TransactionFormState = {
   categoryId: string
   amount: string
   occurredAt: string
-  note: string
+  description: string
+  remarks: string
 }
 
 type BudgetFormState = {
-  scope: BudgetScope
   categoryId: string
-  timeframe: Timeframe
   amount: string
 }
 
@@ -75,28 +78,33 @@ type TrackerShellProps = {
   onCreateCategory: (category: Category) => Promise<void>
   onUpdateCategory: (category: Category) => Promise<void>
   onCreateBudgetRule: (budgetRule: BudgetRule) => Promise<void>
+  onUpdatePreferences: (preferences: Partial<Preferences>) => Promise<void>
 }
 
 const tabItems: { id: AppTab; label: string; description: string }[] = [
   {
     id: 'input',
     label: 'Input',
-    description: 'Add or edit transactions quickly without the rest of the dashboard getting in the way.',
+    description:
+      'Add or edit transactions quickly with separated description and remarks fields.',
   },
   {
     id: 'manage',
     label: 'Manage',
-    description: 'Create categories and update daily, weekly, and monthly budgets whenever you need to.',
+    description:
+      'Reorder categories, update monthly budgets, and let daily or weekly values derive automatically.',
   },
   {
     id: 'records',
     label: 'Records',
-    description: 'Browse transactions by period, filter them, and jump into edits from one place.',
+    description:
+      'Browse transactions by day, week, or month with a direct calendar picker and edit flow.',
   },
   {
     id: 'overview',
     label: 'Overview',
-    description: 'See the summary table, current budget position, and clearer charts in one dashboard tab.',
+    description:
+      'See monthly reporting, budget summaries, and clearer charts in one smartphone-friendly dashboard.',
   },
 ]
 
@@ -120,13 +128,12 @@ const createTransactionFormState = (
   categoryId: getActiveCategories(categories, type)[0]?.id ?? '',
   amount: '',
   occurredAt: formatStorageDate(getNow()),
-  note: '',
+  description: '',
+  remarks: '',
 })
 
 const createBudgetFormState = (categories: Category[]): BudgetFormState => ({
-  scope: 'total',
   categoryId: getActiveCategories(categories, 'expense')[0]?.id ?? '',
-  timeframe: 'weekly',
   amount: '',
 })
 
@@ -150,11 +157,7 @@ const getRemainingTone = (remaining: number | null) => {
   return remaining > 0 ? 'positive' : 'negative'
 }
 
-const getSummaryValue = (
-  value: number | null,
-  currency: string,
-  signed = false,
-) => {
+const getSummaryValue = (value: number | null, currency: string, signed = false) => {
   if (value === null) {
     return 'No budget'
   }
@@ -164,6 +167,13 @@ const getSummaryValue = (
 
 const getErrorMessage = (error: unknown) =>
   error instanceof Error ? error.message : 'Something went wrong. Please try again.'
+
+const moveItem = <T,>(items: T[], fromIndex: number, toIndex: number) => {
+  const nextItems = [...items]
+  const [item] = nextItems.splice(fromIndex, 1)
+  nextItems.splice(toIndex, 0, item)
+  return nextItems
+}
 
 function TrackerShell({
   appState,
@@ -175,10 +185,14 @@ function TrackerShell({
   onCreateCategory,
   onUpdateCategory,
   onCreateBudgetRule,
+  onUpdatePreferences,
 }: TrackerShellProps) {
   const [activeTab, setActiveTab] = useState<AppTab>('overview')
-  const [recordsTimeframe, setRecordsTimeframe] = useState<Timeframe>('weekly')
+  const [recordsTimeframe, setRecordsTimeframe] = useState<Timeframe>('monthly')
   const [recordsAnchorDate, setRecordsAnchorDate] = useState(() =>
+    formatStorageDate(getNow()),
+  )
+  const [overviewAnchorDate, setOverviewAnchorDate] = useState(() =>
     formatStorageDate(getNow()),
   )
   const [overviewTrendTimeframe, setOverviewTrendTimeframe] =
@@ -216,7 +230,6 @@ function TrackerShell({
   const currency = preferences.currency
   const weekStartsOn = preferences.weekStartsOn
   const now = getNow()
-  const currentDateValue = formatStorageDate(now)
   const currentTimestamp = now.toISOString()
 
   const activeExpenseCategories = useMemo(
@@ -249,15 +262,12 @@ function TrackerShell({
 
   const resolvedBudgetForm = useMemo(
     () =>
-      budgetForm.scope === 'category' &&
-      !activeExpenseCategories.some(
-        (category) => category.id === budgetForm.categoryId,
-      )
-        ? {
+      activeExpenseCategories.some((category) => category.id === budgetForm.categoryId)
+        ? budgetForm
+        : {
             ...budgetForm,
             categoryId: activeExpenseCategories[0]?.id ?? '',
-          }
-        : budgetForm,
+          },
     [activeExpenseCategories, budgetForm],
   )
 
@@ -302,24 +312,43 @@ function TrackerShell({
   const recordsSummary = useMemo(
     () =>
       getPeriodSummary({
+        categories,
         transactions,
         budgetRules,
         anchorDate: recordsAnchorDate,
         timeframe: recordsTimeframe,
         weekStartsOn,
+        preferences,
       }),
-    [budgetRules, recordsAnchorDate, recordsTimeframe, transactions, weekStartsOn],
+    [
+      budgetRules,
+      categories,
+      preferences,
+      recordsAnchorDate,
+      recordsTimeframe,
+      transactions,
+      weekStartsOn,
+    ],
   )
 
   const overviewTotals = useMemo(
     () =>
       getOverviewTotals({
+        categories,
         transactions,
         budgetRules,
-        referenceDate: currentDateValue,
+        referenceDate: overviewAnchorDate,
         weekStartsOn,
+        preferences,
       }),
-    [budgetRules, currentDateValue, transactions, weekStartsOn],
+    [
+      budgetRules,
+      categories,
+      overviewAnchorDate,
+      preferences,
+      transactions,
+      weekStartsOn,
+    ],
   )
 
   const overviewRows = useMemo(
@@ -328,10 +357,18 @@ function TrackerShell({
         categories,
         transactions,
         budgetRules,
-        referenceDate: currentDateValue,
+        referenceDate: overviewAnchorDate,
         weekStartsOn,
+        preferences,
       }),
-    [budgetRules, categories, currentDateValue, transactions, weekStartsOn],
+    [
+      budgetRules,
+      categories,
+      overviewAnchorDate,
+      preferences,
+      transactions,
+      weekStartsOn,
+    ],
   )
 
   const monthlyCategoryRows = useMemo(
@@ -340,67 +377,136 @@ function TrackerShell({
         categories,
         transactions,
         budgetRules,
-        anchorDate: currentDateValue,
+        anchorDate: overviewAnchorDate,
         timeframe: 'monthly',
         weekStartsOn,
+        preferences,
       }).filter((row) => row.spend > 0 || row.hasBudget),
-    [budgetRules, categories, currentDateValue, transactions, weekStartsOn],
-  )
-
-  const trendSeries = useMemo(
-    () =>
-      getRollingTrendSeries({
-        transactions,
-        budgetRules,
-        timeframe: overviewTrendTimeframe,
-        anchorDate: currentDateValue,
-        weekStartsOn,
-      }),
     [
       budgetRules,
-      currentDateValue,
-      overviewTrendTimeframe,
+      categories,
+      overviewAnchorDate,
+      preferences,
       transactions,
       weekStartsOn,
     ],
   )
 
+  const trendSeries = useMemo(
+    () =>
+      getRollingTrendSeries({
+        categories,
+        transactions,
+        budgetRules,
+        timeframe: overviewTrendTimeframe,
+        anchorDate: overviewAnchorDate,
+        weekStartsOn,
+        preferences,
+      }),
+    [
+      budgetRules,
+      categories,
+      overviewAnchorDate,
+      overviewTrendTimeframe,
+      preferences,
+      transactions,
+      weekStartsOn,
+    ],
+  )
+
+  const monthlyReport = useMemo(
+    () =>
+      getMonthlyReport({
+        categories,
+        transactions,
+        anchorDate: overviewAnchorDate,
+      }),
+    [categories, overviewAnchorDate, transactions],
+  )
+
   const budgetMatrixRows = useMemo(() => {
     const targets = [
-      { id: 'overall', label: 'Overall budget', scope: 'total' as const },
+      { id: 'overall', label: 'Overall budget', categoryId: undefined as string | undefined },
       ...activeExpenseCategories.map((category) => ({
         id: category.id,
         label: category.name,
-        scope: 'category' as const,
+        categoryId: category.id,
       })),
     ]
 
-    return targets.map((target) => ({
-      id: target.id,
-      label: target.label,
-      daily: getBudgetSnapshot({
+    return targets.map((target) => {
+      const dailySnapshot = getBudgetSnapshot({
+        categories,
         budgetRules,
-        scope: target.scope,
-        categoryId: target.scope === 'category' ? target.id : undefined,
         timeframe: 'daily',
         referenceDate: currentTimestamp,
-      }),
-      weekly: getBudgetSnapshot({
+        categoryId: target.categoryId,
+        preferences,
+        weekStartsOn,
+      })
+      const weeklySnapshot = getBudgetSnapshot({
+        categories,
         budgetRules,
-        scope: target.scope,
-        categoryId: target.scope === 'category' ? target.id : undefined,
         timeframe: 'weekly',
         referenceDate: currentTimestamp,
-      }),
-      monthly: getBudgetSnapshot({
+        categoryId: target.categoryId,
+        preferences,
+        weekStartsOn,
+      })
+      const monthlySnapshot = getBudgetSnapshot({
+        categories,
         budgetRules,
-        scope: target.scope,
-        categoryId: target.scope === 'category' ? target.id : undefined,
         timeframe: 'monthly',
         referenceDate: currentTimestamp,
-      }),
-    }))
-  }, [activeExpenseCategories, budgetRules, currentTimestamp])
+        categoryId: target.categoryId,
+        preferences,
+        weekStartsOn,
+      })
+
+      return {
+        id: target.id,
+        label: target.label,
+        daily: {
+          active: dailySnapshot.active
+            ? {
+                amount: dailySnapshot.active.amount,
+                effectiveFrom: dailySnapshot.active.effectiveFrom,
+              }
+            : null,
+          visibility: preferences.showDailyBudget
+            ? ('visible' as const)
+            : ('hidden' as const),
+        },
+        weekly: {
+          active: weeklySnapshot.active
+            ? {
+                amount: weeklySnapshot.active.amount,
+                effectiveFrom: weeklySnapshot.active.effectiveFrom,
+              }
+            : null,
+          visibility: preferences.showWeeklyBudget
+            ? ('visible' as const)
+            : ('hidden' as const),
+        },
+        monthly: {
+          active: monthlySnapshot.active
+            ? {
+                amount: monthlySnapshot.active.amount,
+                effectiveFrom: monthlySnapshot.active.effectiveFrom,
+              }
+            : null,
+          visibility: 'visible' as const,
+        },
+      }
+    })
+  }, [
+    activeExpenseCategories,
+    budgetRules,
+    categories,
+    currentTimestamp,
+    preferences,
+    weekStartsOn,
+  ])
 
   const categoryCountsByKind = useMemo(
     () =>
@@ -459,6 +565,22 @@ function TrackerShell({
     )
   }, [categories])
 
+  const persistExpenseCategoryOrder = async (orderedCategories: Category[]) => {
+    try {
+      await Promise.all(
+        orderedCategories.map((category, index) =>
+          onUpdateCategory({
+            ...category,
+            sortOrder: index,
+          }),
+        ),
+      )
+      setCategoryNotice('Expense category order updated.')
+    } catch (error) {
+      setCategoryNotice(getErrorMessage(error))
+    }
+  }
+
   const handleTransactionSubmit = async (event: FormEvent<HTMLFormElement>) => {
     event.preventDefault()
 
@@ -472,13 +594,17 @@ function TrackerShell({
       return
     }
 
+    const description = resolvedTransactionForm.description.trim()
+    const remarks = resolvedTransactionForm.remarks.trim()
     const nextTransaction: Transaction = {
       id: editingTransactionId ?? createTransactionId(),
       type: resolvedTransactionForm.type,
       categoryId: resolvedTransactionForm.categoryId,
       amount,
       occurredAt: resolvedTransactionForm.occurredAt,
-      note: resolvedTransactionForm.note.trim(),
+      description,
+      remarks,
+      note: description || undefined,
     }
 
     try {
@@ -502,29 +628,41 @@ function TrackerShell({
 
     const amount = Number(resolvedBudgetForm.amount)
 
-    if (!Number.isFinite(amount) || amount < 0) {
+    if (!Number.isFinite(amount) || amount < 0 || !resolvedBudgetForm.categoryId) {
       return
     }
 
-    const effectiveFrom = getNow().toISOString()
     const nextBudgetRule: BudgetRule = {
       id: createBudgetRuleId(),
-      scope: resolvedBudgetForm.scope,
-      categoryId:
-        resolvedBudgetForm.scope === 'category'
-          ? resolvedBudgetForm.categoryId
-          : undefined,
-      timeframe: resolvedBudgetForm.timeframe,
+      scope: 'category',
+      categoryId: resolvedBudgetForm.categoryId,
+      timeframe: 'monthly',
       amount,
-      effectiveFrom,
+      effectiveFrom: getNow().toISOString(),
     }
 
     try {
       await onCreateBudgetRule(nextBudgetRule)
       setBudgetNotice(
-        `Updated ${resolvedBudgetForm.scope === 'total' ? 'overall' : getCategoryName(categories, resolvedBudgetForm.categoryId)} ${resolvedBudgetForm.timeframe} budget immediately.`,
+        `Updated ${getCategoryName(categories, resolvedBudgetForm.categoryId)} monthly budget immediately.`,
       )
       setBudgetForm((currentForm) => ({ ...currentForm, amount: '' }))
+    } catch (error) {
+      setBudgetNotice(getErrorMessage(error))
+    }
+  }
+
+  const handleBudgetToggle = async (
+    key: 'showDailyBudget' | 'showWeeklyBudget',
+    checked: boolean,
+  ) => {
+    try {
+      await onUpdatePreferences({ [key]: checked })
+      setBudgetNotice(
+        `${key === 'showDailyBudget' ? 'Daily' : 'Weekly'} budget display ${
+          checked ? 'enabled' : 'hidden'
+        }.`,
+      )
     } catch (error) {
       setBudgetNotice(getErrorMessage(error))
     }
@@ -599,21 +737,27 @@ function TrackerShell({
               {[...transactions]
                 .sort(sortTransactionsNewestFirst)
                 .slice(0, 6)
-                .map((transaction) => (
-                  <article className="quick-list-row" key={transaction.id}>
-                    <div>
-                      <strong>{getCategoryName(categories, transaction.categoryId)}</strong>
-                      <p>{transaction.note || 'No note'}</p>
-                    </div>
-                    <span
-                      className={transaction.type === 'income' ? 'positive' : 'negative'}
-                    >
-                      {transaction.type === 'income'
-                        ? formatSignedCurrency(transaction.amount, currency)
-                        : formatSignedCurrency(-transaction.amount, currency)}
-                    </span>
-                  </article>
-                ))}
+                .map((transaction) => {
+                  const description = getTransactionDescription(transaction)
+                  const remarks = getTransactionRemarks(transaction)
+
+                  return (
+                    <article className="quick-list-row" key={transaction.id}>
+                      <div>
+                        <strong>{getCategoryName(categories, transaction.categoryId)}</strong>
+                        <p>{description || 'No description'}</p>
+                        {remarks ? <p className="muted-text">Remarks: {remarks}</p> : null}
+                      </div>
+                      <span
+                        className={transaction.type === 'income' ? 'positive' : 'negative'}
+                      >
+                        {transaction.type === 'income'
+                          ? formatSignedCurrency(transaction.amount, currency)
+                          : formatSignedCurrency(-transaction.amount, currency)}
+                      </span>
+                    </article>
+                  )
+                })}
               {transactions.length === 0 ? (
                 <div className="empty-state small">
                   <h3>No transactions yet</h3>
@@ -650,6 +794,13 @@ function TrackerShell({
                 }
 
                 const nextCategoryId = createCategoryId()
+                const nextSortOrder =
+                  Math.max(
+                    -1,
+                    ...categories
+                      .filter((category) => category.kind === categoryForm.kind)
+                      .map((category) => category.sortOrder ?? -1),
+                  ) + 1
 
                 try {
                   await onCreateCategory({
@@ -657,6 +808,7 @@ function TrackerShell({
                     name,
                     kind: categoryForm.kind,
                     archived: false,
+                    sortOrder: nextSortOrder,
                   })
                   setCategoryDrafts((currentDrafts) => ({
                     ...currentDrafts,
@@ -717,14 +869,57 @@ function TrackerShell({
                   setCategoryNotice(getErrorMessage(error))
                 }
               }}
+              onReorderExpenseCategories={(sourceId, targetId) => {
+                setCategoryNotice('')
+                const expenseCategories = categories.filter(
+                  (category) => category.kind === 'expense',
+                )
+                const fromIndex = expenseCategories.findIndex(
+                  (category) => category.id === sourceId,
+                )
+                const toIndex = expenseCategories.findIndex(
+                  (category) => category.id === targetId,
+                )
+
+                if (fromIndex < 0 || toIndex < 0 || fromIndex === toIndex) {
+                  return
+                }
+
+                void persistExpenseCategoryOrder(
+                  moveItem(expenseCategories, fromIndex, toIndex),
+                )
+              }}
+              onMoveExpenseCategory={(categoryId, direction) => {
+                setCategoryNotice('')
+                const expenseCategories = categories.filter(
+                  (category) => category.kind === 'expense',
+                )
+                const index = expenseCategories.findIndex(
+                  (category) => category.id === categoryId,
+                )
+
+                if (index < 0) {
+                  return
+                }
+
+                const targetIndex = direction === 'up' ? index - 1 : index + 1
+
+                if (targetIndex < 0 || targetIndex >= expenseCategories.length) {
+                  return
+                }
+
+                void persistExpenseCategoryOrder(
+                  moveItem(expenseCategories, index, targetIndex),
+                )
+              }}
             />
             {categoryNotice ? <p className="notice">{categoryNotice}</p> : null}
           </Panel>
 
           <Panel
             eyebrow="Budgets"
-            title="Change budgets instantly"
-            description="Budget edits apply to the current day, week, or month right away."
+            title="Monthly budgets with auto totals"
+            description="Set monthly category budgets once and let the app calculate the overall, daily, and weekly views for you."
           >
             <BudgetManager
               form={resolvedBudgetForm}
@@ -733,11 +928,19 @@ function TrackerShell({
               budgetNotice={budgetNotice}
               budgetMatrixRows={budgetMatrixRows}
               currency={currency}
+              showDailyBudget={preferences.showDailyBudget}
+              showWeeklyBudget={preferences.showWeeklyBudget}
               onFormChange={(nextForm) => {
                 setBudgetNotice('')
                 setBudgetForm(nextForm)
               }}
               onSubmit={handleBudgetSubmit}
+              onToggleDailyBudget={(checked) =>
+                void handleBudgetToggle('showDailyBudget', checked)
+              }
+              onToggleWeeklyBudget={(checked) =>
+                void handleBudgetToggle('showWeeklyBudget', checked)
+              }
             />
           </Panel>
         </main>
@@ -791,6 +994,17 @@ function TrackerShell({
                 </button>
               </div>
             </div>
+
+            <div className="filters single-row-filters">
+              <label className="field">
+                <span>Pick a date</span>
+                <input
+                  type="date"
+                  value={recordsAnchorDate}
+                  onChange={(event) => setRecordsAnchorDate(event.target.value)}
+                />
+              </label>
+            </div>
           </section>
 
           <section className="summary-grid compact-grid">
@@ -805,7 +1019,7 @@ function TrackerShell({
                 recordsSummary.hasBudget ? recordsSummary.budget : null,
                 currency,
               )}
-              helpText="Uses the last budget active in this period."
+              helpText="Uses the last active budget in the selected period."
             />
             <SummaryCard
               label="Remaining"
@@ -836,21 +1050,24 @@ function TrackerShell({
                   categoryId: transaction.categoryId,
                   amount: `${transaction.amount}`,
                   occurredAt: transaction.occurredAt,
-                  note: transaction.note ?? '',
+                  description: getTransactionDescription(transaction),
+                  remarks: getTransactionRemarks(transaction),
                 })
                 setActiveTab('input')
               }}
-              onDelete={async (transactionId) => {
-                try {
-                  await onDeleteTransaction(transactionId)
+              onDelete={(transactionId) => {
+                void (async () => {
+                  try {
+                    await onDeleteTransaction(transactionId)
 
-                  if (editingTransactionId === transactionId) {
-                    setEditingTransactionId(null)
-                    setTransactionForm(createTransactionFormState(categories))
+                    if (editingTransactionId === transactionId) {
+                      setEditingTransactionId(null)
+                      setTransactionForm(createTransactionFormState(categories))
+                    }
+                  } catch (error) {
+                    setHeaderMessage(getErrorMessage(error))
                   }
-                } catch (error) {
-                  setHeaderMessage(getErrorMessage(error))
-                }
+                })()
               }}
             />
           </Panel>
@@ -859,11 +1076,51 @@ function TrackerShell({
 
       {activeTab === 'overview' ? (
         <main className="tab-page">
+          <section className="toolbar-card">
+            <div className="toolbar-row">
+              <div className="period-navigation compact">
+                <button
+                  type="button"
+                  className="nav-button"
+                  onClick={() =>
+                    setOverviewAnchorDate((current) => shiftAnchorDate(current, 'monthly', -1))
+                  }
+                >
+                  Previous month
+                </button>
+                <div className="period-badge compact">
+                  <span className="period-caption">Monthly report</span>
+                  <strong>{monthlyReport.monthLabel}</strong>
+                </div>
+                <button
+                  type="button"
+                  className="nav-button"
+                  onClick={() =>
+                    setOverviewAnchorDate((current) => shiftAnchorDate(current, 'monthly', 1))
+                  }
+                >
+                  Next month
+                </button>
+              </div>
+            </div>
+
+            <div className="filters single-row-filters">
+              <label className="field">
+                <span>Anchor date</span>
+                <input
+                  type="date"
+                  value={overviewAnchorDate}
+                  onChange={(event) => setOverviewAnchorDate(event.target.value)}
+                />
+              </label>
+            </div>
+          </section>
+
           <section className="summary-grid">
             <SummaryCard
               label="Spent This Month"
               value={formatCurrency(overviewTotals.monthly.spend, currency)}
-              helpText="Overall expense total for the current month."
+              helpText="Overall expense total for the selected month."
               testId="summary-spend"
             />
             <SummaryCard
@@ -872,7 +1129,7 @@ function TrackerShell({
                 overviewTotals.monthly.hasBudget ? overviewTotals.monthly.budget : null,
                 currency,
               )}
-              helpText="Latest monthly overall budget active this month."
+              helpText="Overall monthly budget is auto-added from category budgets."
               testId="summary-budget"
             />
             <SummaryCard
@@ -892,28 +1149,38 @@ function TrackerShell({
             <SummaryCard
               label="Net Cash Flow"
               value={formatSignedCurrency(overviewTotals.monthly.net, currency)}
-              helpText="Income minus expenses for the current month."
+              helpText="Income minus expenses for the selected month."
               tone={overviewTotals.monthly.net >= 0 ? 'positive' : 'negative'}
               testId="summary-net"
             />
           </section>
 
           <Panel
+            eyebrow={monthlyReport.bannerLabel}
+            title="Monthly report"
+            description="Grouped income, grouped expenses, balance, and the change versus last month."
+          >
+            <MonthlyReportCard report={monthlyReport} currency={currency} />
+          </Panel>
+
+          <Panel
             eyebrow="Overview"
             title="Budget summary"
-            description="This table keeps daily, weekly, and monthly category numbers together like a spreadsheet."
+            description="Daily, weekly, and monthly category numbers are kept together here."
           >
             <OverviewSummaryTable
               rows={overviewRows}
               overallRow={overviewOverallRow}
               currency={currency}
+              showDailyBudget={preferences.showDailyBudget}
+              showWeeklyBudget={preferences.showWeeklyBudget}
             />
           </Panel>
 
           <Panel
             eyebrow="Charts"
             title="Spend vs budget trend"
-            description="One chart per row so each trend is easier to read."
+            description="Each chart stays in its own panel for a cleaner read on phone and desktop."
           >
             <div className="chart-toolbar">
               <div className="segmented-control" role="tablist" aria-label="Trend timeframe">
@@ -937,7 +1204,7 @@ function TrackerShell({
           <Panel
             eyebrow="Charts"
             title="Monthly category comparison"
-            description="Monthly category spending and budgets are separated into their own chart for readability."
+            description="Current monthly category spending and budgets are stacked in a separate panel."
           >
             <CategoryBudgetChart data={monthlyCategoryRows} currency={currency} />
           </Panel>

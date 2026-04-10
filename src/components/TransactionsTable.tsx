@@ -2,6 +2,8 @@ import {
   formatDisplayDate,
   formatSignedCurrency,
   getCategoryName,
+  getTransactionDescription,
+  getTransactionRemarks,
 } from '../lib/finance'
 import type { Category, Transaction, TransactionType } from '../lib/finance'
 
@@ -68,45 +70,55 @@ function TransactionsTable({
 
       {transactions.length > 0 ? (
         <div className="records-list" data-testid="transactions-mobile-list">
-          {transactions.map((transaction) => (
-            <article className="record-card" key={transaction.id}>
-              <div className="record-card-header">
-                <div>
-                  <p className="record-card-date">
-                    {formatDisplayDate(transaction.occurredAt)}
+          {transactions.map((transaction) => {
+            const description = getTransactionDescription(transaction)
+            const remarks = getTransactionRemarks(transaction)
+
+            return (
+              <article className="record-card" key={transaction.id}>
+                <div className="record-card-header">
+                  <div>
+                    <p className="record-card-date">
+                      {formatDisplayDate(transaction.occurredAt)}
+                    </p>
+                    <strong>{getCategoryName(categories, transaction.categoryId)}</strong>
+                  </div>
+                  <span className={`status-pill ${transaction.type}`}>
+                    {transaction.type}
+                  </span>
+                </div>
+
+                <div className="record-card-copy">
+                  <p className="record-card-description">
+                    {description || 'No description'}
                   </p>
-                  <strong>{getCategoryName(categories, transaction.categoryId)}</strong>
+                  {remarks ? <p className="record-card-note">Remarks: {remarks}</p> : null}
                 </div>
-                <span className={`status-pill ${transaction.type}`}>
-                  {transaction.type}
-                </span>
-              </div>
 
-              <p className="record-card-note">{transaction.note || 'No note'}</p>
-
-              <div className="record-card-footer">
-                <span className={transaction.type === 'income' ? 'positive' : 'negative'}>
-                  {renderAmount(transaction)}
-                </span>
-                <div className="row-actions">
-                  <button
-                    type="button"
-                    className="button button-secondary"
-                    onClick={() => onEdit(transaction)}
-                  >
-                    Edit
-                  </button>
-                  <button
-                    type="button"
-                    className="button button-secondary"
-                    onClick={() => onDelete(transaction.id)}
-                  >
-                    Delete
-                  </button>
+                <div className="record-card-footer">
+                  <span className={transaction.type === 'income' ? 'positive' : 'negative'}>
+                    {renderAmount(transaction)}
+                  </span>
+                  <div className="row-actions">
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => onEdit(transaction)}
+                    >
+                      Edit
+                    </button>
+                    <button
+                      type="button"
+                      className="button button-secondary"
+                      onClick={() => onDelete(transaction.id)}
+                    >
+                      Delete
+                    </button>
+                  </div>
                 </div>
-              </div>
-            </article>
-          ))}
+              </article>
+            )
+          })}
         </div>
       ) : (
         <div className="empty-state small">
@@ -125,7 +137,8 @@ function TransactionsTable({
               <th>Date</th>
               <th>Type</th>
               <th>Category</th>
-              <th>Note</th>
+              <th>Description</th>
+              <th>Remarks</th>
               <th>Amount</th>
               <th>Actions</th>
             </tr>
@@ -141,7 +154,8 @@ function TransactionsTable({
                     </span>
                   </td>
                   <td>{getCategoryName(categories, transaction.categoryId)}</td>
-                  <td>{transaction.note || 'No note'}</td>
+                  <td>{getTransactionDescription(transaction) || 'No description'}</td>
+                  <td>{getTransactionRemarks(transaction) || 'None'}</td>
                   <td className={transaction.type === 'income' ? 'positive' : 'negative'}>
                     {renderAmount(transaction)}
                   </td>
@@ -167,7 +181,7 @@ function TransactionsTable({
               ))
             ) : (
               <tr>
-                <td colSpan={6}>
+                <td colSpan={7}>
                   <div className="empty-state small">
                     <h3>No transactions in this view</h3>
                     <p>

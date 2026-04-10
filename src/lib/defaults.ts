@@ -10,6 +10,8 @@ import type {
 export const DEFAULT_PREFERENCES = {
   currency: 'HKD',
   weekStartsOn: 1,
+  showDailyBudget: true,
+  showWeeklyBudget: true,
 } satisfies Preferences
 
 const expenseNames = [
@@ -29,16 +31,18 @@ const incomeNames = ['Salary', 'Freelance', 'Refund', 'Gift', 'Other']
 const makeDefaultCategory = (
   name: string,
   kind: Category['kind'],
+  sortOrder: number,
 ): Category => ({
   id: `${kind}-${name.toLowerCase().replace(/\s+/g, '-')}`,
   name,
   kind,
   archived: false,
+  sortOrder,
 })
 
 export const createDefaultCategories = () => [
-  ...expenseNames.map((name) => makeDefaultCategory(name, 'expense')),
-  ...incomeNames.map((name) => makeDefaultCategory(name, 'income')),
+  ...expenseNames.map((name, index) => makeDefaultCategory(name, 'expense', index)),
+  ...incomeNames.map((name, index) => makeDefaultCategory(name, 'income', index)),
 ]
 
 export const createEmptyState = (): AppState => ({
@@ -65,7 +69,10 @@ export const isTransaction = (value: unknown): value is Transaction => {
     typeof candidate.categoryId === 'string' &&
     typeof candidate.amount === 'number' &&
     typeof candidate.occurredAt === 'string' &&
-    (typeof candidate.note === 'string' || typeof candidate.note === 'undefined')
+    (typeof candidate.note === 'string' || typeof candidate.note === 'undefined') &&
+    (typeof candidate.description === 'string' ||
+      typeof candidate.description === 'undefined') &&
+    (typeof candidate.remarks === 'string' || typeof candidate.remarks === 'undefined')
   )
 }
 
@@ -80,7 +87,8 @@ export const isCategory = (value: unknown): value is Category => {
     typeof candidate.id === 'string' &&
     typeof candidate.name === 'string' &&
     (candidate.kind === 'income' || candidate.kind === 'expense') &&
-    typeof candidate.archived === 'boolean'
+    typeof candidate.archived === 'boolean' &&
+    (typeof candidate.sortOrder === 'number' || typeof candidate.sortOrder === 'undefined')
   )
 }
 

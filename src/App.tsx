@@ -233,6 +233,9 @@ function App() {
       onCreateBudgetRule={(budgetRule: BudgetRule) =>
         backend.createBudgetRule(authView.user.uid, budgetRule)
       }
+      onUpdatePreferences={(preferences) =>
+        backend.updatePreferences(authView.user.uid, preferences)
+      }
     />
   )
 }

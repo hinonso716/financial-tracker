@@ -89,6 +89,7 @@ export type AppBackend = {
   createCategory: (uid: string, category: Category) => Promise<void>
   updateCategory: (uid: string, category: Category) => Promise<void>
   createBudgetRule: (uid: string, budgetRule: BudgetRule) => Promise<void>
+  updatePreferences: (uid: string, preferences: Partial<Preferences>) => Promise<void>
 }
 
 type TestSeed = {
@@ -134,8 +135,33 @@ const sortCategories = (categories: Category[]) =>
       return left.kind.localeCompare(right.kind)
     }
 
+    const leftOrder = left.sortOrder ?? Number.MAX_SAFE_INTEGER
+    const rightOrder = right.sortOrder ?? Number.MAX_SAFE_INTEGER
+
+    if (leftOrder !== rightOrder) {
+      return leftOrder - rightOrder
+    }
+
     return left.name.localeCompare(right.name)
   })
+
+const normalizeCategories = (categories: Category[]) => {
+  const grouped: Record<Category['kind'], Category[]> = {
+    expense: [],
+    income: [],
+  }
+
+  sortCategories(categories).forEach((category) => {
+    grouped[category.kind].push(category)
+  })
+
+  return (['expense', 'income'] as const).flatMap((kind) =>
+    grouped[kind].map((category, index) => ({
+      ...category,
+      sortOrder: index,
+    })),
+  )
+}
 
 const sortTransactions = (transactions: Transaction[]) =>
   [...transactions].sort((left, right) => {
@@ -162,11 +188,19 @@ const normalizePreferences = (
     preferences?.currency === 'HKD' ? 'HKD' : DEFAULT_PREFERENCES.currency,
   weekStartsOn:
     preferences?.weekStartsOn === 1 ? 1 : DEFAULT_PREFERENCES.weekStartsOn,
+  showDailyBudget:
+    typeof preferences?.showDailyBudget === 'boolean'
+      ? preferences.showDailyBudget
+      : DEFAULT_PREFERENCES.showDailyBudget,
+  showWeeklyBudget:
+    typeof preferences?.showWeeklyBudget === 'boolean'
+      ? preferences.showWeeklyBudget
+      : DEFAULT_PREFERENCES.showWeeklyBudget,
 })
 
 const normalizeAppState = (state: AppState): AppState => ({
   transactions: sortTransactions(state.transactions),
-  categories: sortCategories(state.categories),
+  categories: normalizeCategories(state.categories),
   budgetRules: sortBudgetRules(state.budgetRules),
   preferences: normalizePreferences(state.preferences),
 })
@@ -280,6 +314,9 @@ const createConfigErrorBackend = (): AppBackend => ({
     throw new Error(getConfigErrorMessage())
   },
   async createBudgetRule() {
+    throw new Error(getConfigErrorMessage())
+  },
+  async updatePreferences() {
     throw new Error(getConfigErrorMessage())
   },
 })
@@ -478,6 +515,15 @@ class MemoryAppBackend implements AppBackend {
       ...record.state,
       budgetRules: [...record.state.budgetRules, budgetRule],
     }).budgetRules
+    this.emitState(uid)
+  }
+
+  async updatePreferences(uid: string, preferences: Partial<Preferences>) {
+    const record = this.requireUser(uid)
+    record.state.preferences = normalizePreferences({
+      ...record.state.preferences,
+      ...preferences,
+    })
     this.emitState(uid)
   }
 
@@ -735,6 +781,14 @@ const createFirebaseBackend = (): AppBackend => {
 
     async createBudgetRule(uid, budgetRule) {
       await setDoc(doc(db, 'users', uid, 'budgetRules', budgetRule.id), budgetRule)
+    },
+
+    async updatePreferences(uid, preferences) {
+      await setDoc(
+        doc(db, 'users', uid, 'preferences', 'app'),
+        normalizePreferences(preferences),
+        { merge: true },
+      )
     },
   }
 }
