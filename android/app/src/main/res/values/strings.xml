@@ -1,0 +1,7 @@
+<?xml version='1.0' encoding='utf-8'?>
+<resources>
+    <string name="app_name">Financial Tracker</string>
+    <string name="title_activity_main">Financial Tracker</string>
+    <string name="package_name">io.github.hinonso716.financialtracker</string>
+    <string name="custom_url_scheme">io.github.hinonso716.financialtracker</string>
+</resources>

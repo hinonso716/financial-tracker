@@ -146,7 +146,39 @@ function BudgetManager({
         </div>
       </form>
 
-      <div className="table-shell compact">
+      <div className="budget-matrix-grid">
+        {budgetMatrixRows.map((row) => (
+          <article className="budget-matrix-card" key={row.id}>
+            <div className="budget-matrix-card-header">
+              <h3>{row.label}</h3>
+            </div>
+
+            <div className="budget-matrix-card-body">
+              {(['daily', 'weekly', 'monthly'] as Timeframe[]).map((timeframe) => {
+                const snapshot = row[timeframe]
+
+                return (
+                  <div className="budget-cell" key={timeframe}>
+                    <strong>{timeframe[0].toUpperCase() + timeframe.slice(1)}</strong>
+                    <span>
+                      {snapshot.active
+                        ? formatCurrency(snapshot.active.amount, currency)
+                        : 'Not set'}
+                    </span>
+                    {snapshot.active ? (
+                      <span className="muted-text">
+                        Updated: {formatDisplayDateTime(snapshot.active.effectiveFrom)}
+                      </span>
+                    ) : null}
+                  </div>
+                )
+              })}
+            </div>
+          </article>
+        ))}
+      </div>
+
+      <div className="table-shell compact desktop-table-shell">
         <table className="data-table">
           <thead>
             <tr>

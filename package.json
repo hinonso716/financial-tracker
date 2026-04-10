@@ -5,18 +5,30 @@
   "type": "module",
   "scripts": {
     "dev": "vite",
-    "build": "tsc -b && vite build",
+    "build": "npm run build:web",
+    "build:web": "tsc -b && vite build --mode web",
+    "build:native": "tsc -b && vite build --mode native",
+    "assets:generate": "npx @capacitor/assets generate --iconBackgroundColor \"#fffaf3\" --iconBackgroundColorDark \"#173736\" --splashBackgroundColor \"#fffaf3\" --splashBackgroundColorDark \"#173736\"",
+    "cap:sync": "npm run build:native && npx cap sync",
+    "ios:open": "npx cap open ios",
+    "android:open": "npx cap open android",
     "lint": "eslint .",
     "test": "vitest run",
     "preview": "vite preview"
   },
   "dependencies": {
+    "@capacitor/core": "^8.3.0",
     "date-fns": "^4.1.0",
+    "firebase": "^12.12.0",
     "react": "^19.2.4",
     "react-dom": "^19.2.4",
     "recharts": "^3.8.1"
   },
   "devDependencies": {
+    "@capacitor/android": "^8.3.0",
+    "@capacitor/assets": "^3.0.5",
+    "@capacitor/cli": "^8.3.0",
+    "@capacitor/ios": "^8.3.0",
     "@eslint/js": "^9.39.4",
     "@testing-library/jest-dom": "^6.9.1",
     "@testing-library/react": "^16.3.2",

@@ -28,6 +28,11 @@ function TransactionsTable({
   onEdit,
   onDelete,
 }: TransactionsTableProps) {
+  const renderAmount = (transaction: Transaction) =>
+    transaction.type === 'income'
+      ? formatSignedCurrency(transaction.amount, currency)
+      : formatSignedCurrency(-transaction.amount, currency)
+
   return (
     <>
       <div className="filters">
@@ -61,7 +66,59 @@ function TransactionsTable({
         </label>
       </div>
 
-      <div className="table-shell">
+      {transactions.length > 0 ? (
+        <div className="records-list" data-testid="transactions-mobile-list">
+          {transactions.map((transaction) => (
+            <article className="record-card" key={transaction.id}>
+              <div className="record-card-header">
+                <div>
+                  <p className="record-card-date">
+                    {formatDisplayDate(transaction.occurredAt)}
+                  </p>
+                  <strong>{getCategoryName(categories, transaction.categoryId)}</strong>
+                </div>
+                <span className={`status-pill ${transaction.type}`}>
+                  {transaction.type}
+                </span>
+              </div>
+
+              <p className="record-card-note">{transaction.note || 'No note'}</p>
+
+              <div className="record-card-footer">
+                <span className={transaction.type === 'income' ? 'positive' : 'negative'}>
+                  {renderAmount(transaction)}
+                </span>
+                <div className="row-actions">
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => onEdit(transaction)}
+                  >
+                    Edit
+                  </button>
+                  <button
+                    type="button"
+                    className="button button-secondary"
+                    onClick={() => onDelete(transaction.id)}
+                  >
+                    Delete
+                  </button>
+                </div>
+              </div>
+            </article>
+          ))}
+        </div>
+      ) : (
+        <div className="empty-state small">
+          <h3>No transactions in this view</h3>
+          <p>
+            Change the timeframe, move to another period, or add a transaction to
+            populate the records.
+          </p>
+        </div>
+      )}
+
+      <div className="table-shell desktop-table-shell">
         <table className="data-table" data-testid="transactions-table">
           <thead>
             <tr>
@@ -86,9 +143,7 @@ function TransactionsTable({
                   <td>{getCategoryName(categories, transaction.categoryId)}</td>
                   <td>{transaction.note || 'No note'}</td>
                   <td className={transaction.type === 'income' ? 'positive' : 'negative'}>
-                    {transaction.type === 'income'
-                      ? formatSignedCurrency(transaction.amount, currency)
-                      : formatSignedCurrency(-transaction.amount, currency)}
+                    {renderAmount(transaction)}
                   </td>
                   <td>
                     <div className="row-actions">
@@ -117,7 +172,7 @@ function TransactionsTable({
                     <h3>No transactions in this view</h3>
                     <p>
                       Change the timeframe, move to another period, or add a
-                      transaction to populate the table.
+                      transaction to populate the records.
                     </p>
                   </div>
                 </td>

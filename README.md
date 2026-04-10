@@ -1,34 +1,93 @@
 # Financial Tracker
 
-A local-first React + TypeScript financial tracker with:
+A mobile-first React + TypeScript financial tracker with Firebase accounts, Firestore-backed per-user data, GitHub Pages hosting for the web app, and Capacitor wrappers for iPhone and Android.
 
-- income and expense transactions
-- editable income and expense categories
-- versioned budgets for daily, weekly, and monthly periods
-- timeframe switching with previous/next navigation
-- summary cards, charts, budget table, and transaction table
-- browser `localStorage` persistence
+Live site:
+
+`https://hinonso716.github.io/financial-tracker/`
+
+## What It Does
+
+- Email/password sign up and sign in
+- Google sign in
+- Password reset flow
+- Per-user cloud data in Firestore
+- Offline-friendly Firestore cache with cloud sync as the source of truth
+- Four app sections: transaction input, categories and budgets, transaction records, and finance overview
+- Mobile-first layout with phone-friendly record cards and overview summary cards
+- Daily, weekly, and monthly budgets that apply immediately
+
+## Local Setup
+
+1. Install dependencies:
+
+```bash
+npm install
+```
+
+2. Copy `.env.example` to `.env` and fill in your Firebase web config values:
+
+```bash
+cp .env.example .env
+```
+
+3. In Firebase Console:
+
+- create a Firebase project
+- enable Firestore Database
+- enable Authentication
+- enable `Email/Password`
+- enable `Google`
+- add `localhost` and `hinonso716.github.io` to Authentication > Settings > Authorized domains
+
+4. Apply the Firestore rules from [`firestore.rules`](./firestore.rules).
+
+5. Start the app:
+
+```bash
+npm run dev
+```
 
 ## Scripts
 
 ```bash
-npm install
 npm run dev
 npm run lint
 npm test
 npm run build
+npm run build:web
+npm run build:native
+npm run cap:sync
+npm run ios:open
+npm run android:open
 ```
 
-## Live Site
+## GitHub Pages + Firebase Config
 
-After GitHub Pages is enabled for the repository, the app will be available at:
+The GitHub Pages workflow builds the app from `main` and expects these repository variables in GitHub:
 
-`https://hinonso716.github.io/financial-tracker/`
+- `VITE_FIREBASE_API_KEY`
+- `VITE_FIREBASE_AUTH_DOMAIN`
+- `VITE_FIREBASE_PROJECT_ID`
+- `VITE_FIREBASE_STORAGE_BUCKET`
+- `VITE_FIREBASE_MESSAGING_SENDER_ID`
+- `VITE_FIREBASE_APP_ID`
 
-## Notes
+Add them under `Settings > Secrets and variables > Actions > Variables`.
 
-- Currency defaults to `HKD`.
-- Weekly reporting uses a Monday start.
-- Budget edits are scheduled from the next matching period boundary so older reports stay historically correct.
-- App state is stored locally under `financial-tracker-state-v1`.
-- Because data lives in browser local storage, each friend or device keeps its own separate data unless you later add sync.
+## Data Behavior
+
+- Financial data is stored per account in Firestore under `users/{uid}/...`
+- The old custom `localStorage` app bundle is no longer the source of truth
+- Firestore offline persistence may cache recent data locally, but the canonical data lives in the signed-in user account
+- Existing browser-local demo data is not migrated into Firebase
+- Web, iPhone, and Android still keep separate local caches until a sync strategy is added for the native shells
+
+## Mobile Wrappers
+
+The current repo still includes Capacitor iOS and Android projects. The web app remains the main source of truth for UI and business logic.
+
+- iPhone: run `npm run cap:sync`, then `npm run ios:open`
+- Android: run `npm run cap:sync`, then `npm run android:open`
+
+Those wrappers are not the focus of this Firebase web phase, but the shared UI is kept compatible with narrow phone layouts.

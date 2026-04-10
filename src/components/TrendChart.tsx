@@ -28,10 +28,12 @@ function TrendChart({ data, currency, empty }: TrendChartProps) {
     )
   }
 
+  const chartHeight = 320
+
   return (
     <div className="chart-frame" data-testid="trend-chart">
-      <ResponsiveContainer width="100%" height={300}>
-        <LineChart data={data}>
+      <ResponsiveContainer width="100%" height={chartHeight}>
+        <LineChart data={data} margin={{ top: 12, right: 12, left: 4, bottom: 4 }}>
           <CartesianGrid strokeDasharray="3 3" stroke="rgba(37, 52, 57, 0.08)" />
           <XAxis dataKey="label" stroke="#5f7377" />
           <YAxis

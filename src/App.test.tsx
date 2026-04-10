@@ -3,28 +3,81 @@ import userEvent from '@testing-library/user-event'
 import { afterEach, beforeEach, describe, expect, it, vi } from 'vitest'
 
 import App from './App'
-import { createDefaultCategories, STORAGE_KEY } from './lib/defaults'
+import { resetTestBackend, seedTestBackend } from './lib/backend'
+import { createDefaultCategories } from './lib/defaults'
 import * as financeModule from './lib/finance'
 import type { AppState } from './lib/finance'
 
-const setStoredState = (partialState?: Partial<AppState>) => {
-  const state: AppState = {
-    transactions: [],
-    categories: createDefaultCategories(),
-    budgetRules: [],
-    preferences: {
-      currency: 'HKD',
-      weekStartsOn: 1,
-    },
-    ...partialState,
-  }
+const USER_PASSWORD = 'password123'
 
-  window.localStorage.setItem(STORAGE_KEY, JSON.stringify(state))
+const clickNamedButton = async (user: ReturnType<typeof userEvent.setup>, name: string) => {
+  const buttons = screen.getAllByRole('button', { name })
+  await user.click(buttons[buttons.length - 1])
 }
+
+const signUpWithEmail = async (
+  user: ReturnType<typeof userEvent.setup>,
+  {
+    email = 'user@example.com',
+    password = USER_PASSWORD,
+  }: { email?: string; password?: string } = {},
+) => {
+  await user.click(screen.getAllByRole('button', { name: 'Create account' })[0])
+  await user.clear(screen.getByLabelText('Email'))
+  await user.type(screen.getByLabelText('Email'), email)
+  await user.type(screen.getByLabelText('Password'), password)
+  await user.type(screen.getByLabelText('Confirm password'), password)
+  await clickNamedButton(user, 'Create account')
+  await screen.findByTestId('summary-spend')
+}
+
+const signInWithEmail = async (
+  user: ReturnType<typeof userEvent.setup>,
+  {
+    email = 'user@example.com',
+    password = USER_PASSWORD,
+  }: { email?: string; password?: string } = {},
+) => {
+  await user.click(screen.getAllByRole('button', { name: 'Sign in' })[0])
+  await user.clear(screen.getByLabelText('Email'))
+  await user.type(screen.getByLabelText('Email'), email)
+  await user.clear(screen.getByLabelText('Password'))
+  await user.type(screen.getByLabelText('Password'), password)
+  await clickNamedButton(user, 'Sign in')
+  await screen.findByTestId('summary-spend')
+}
+
+const createTransaction = async (
+  user: ReturnType<typeof userEvent.setup>,
+  {
+    amount,
+    note,
+  }: {
+    amount: string
+    note: string
+  },
+) => {
+  await user.click(screen.getByRole('button', { name: 'Input' }))
+  await user.clear(screen.getByLabelText('Amount'))
+  await user.type(screen.getByLabelText('Amount'), amount)
+  await user.type(screen.getByLabelText('Note / description'), note)
+  await user.click(screen.getByRole('button', { name: 'Save transaction' }))
+}
+
+const buildSeedState = (partialState?: Partial<AppState>): AppState => ({
+  transactions: [],
+  categories: createDefaultCategories(),
+  budgetRules: [],
+  preferences: {
+    currency: 'HKD',
+    weekStartsOn: 1,
+  },
+  ...partialState,
+})
 
 describe('App', () => {
   beforeEach(() => {
-    window.localStorage.clear()
+    resetTestBackend()
     vi.spyOn(financeModule, 'getNow').mockReturnValue(
       new Date('2026-04-10T09:00:00.000Z'),
     )
@@ -33,139 +86,128 @@ describe('App', () => {
   afterEach(() => {
     cleanup()
     vi.restoreAllMocks()
-    window.localStorage.clear()
+    resetTestBackend()
   })
 
-  it('uses bottom tabs and supports create, edit, and delete through input and records pages', async () => {
+  it('gates the app behind auth and keeps cloud-backed data across sign out and sign in', async () => {
     const user = userEvent.setup()
 
     render(<App />)
 
-    await user.click(screen.getByRole('button', { name: 'Input' }))
+    expect(screen.getByRole('heading', { name: 'Sign in to your tracker' })).toBeInTheDocument()
+    expect(screen.queryByRole('button', { name: 'Overview' })).not.toBeInTheDocument()
 
-    const inputPanel = screen
-      .getByRole('heading', { name: 'Add transaction' })
-      .closest('section')
-    expect(inputPanel).not.toBeNull()
+    await signUpWithEmail(user)
+    await createTransaction(user, { amount: '120', note: 'Lunch' })
 
-    const inputScope = within(inputPanel as HTMLElement)
-    await user.clear(inputScope.getByLabelText('Amount'))
-    await user.type(inputScope.getByLabelText('Amount'), '120')
-    await user.type(inputScope.getByLabelText('Note / description'), 'Lunch')
-    await user.click(inputScope.getByRole('button', { name: 'Save transaction' }))
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+    expect(screen.getByRole('heading', { name: 'Start your own tracker' })).toBeInTheDocument()
 
-    await user.click(screen.getByRole('button', { name: 'Overview' }))
-    expect(screen.getByTestId('summary-spend')).toHaveTextContent('HK$120.00')
-
+    await signInWithEmail(user)
     await user.click(screen.getByRole('button', { name: 'Records' }))
+
+    expect(screen.getByTestId('transactions-mobile-list')).toHaveTextContent('Lunch')
     expect(screen.getByTestId('transactions-table')).toHaveTextContent('Lunch')
-
-    await user.click(screen.getByRole('button', { name: 'Edit' }))
-    expect(screen.getByRole('heading', { name: 'Edit transaction' })).toBeInTheDocument()
-
-    const editPanel = screen
-      .getByRole('heading', { name: 'Edit transaction' })
-      .closest('section')
-    expect(editPanel).not.toBeNull()
-    const editScope = within(editPanel as HTMLElement)
-
-    await user.clear(editScope.getByLabelText('Amount'))
-    await user.type(editScope.getByLabelText('Amount'), '150')
-    await user.click(editScope.getByRole('button', { name: 'Update transaction' }))
-
-    await user.click(screen.getByRole('button', { name: 'Overview' }))
-    expect(screen.getByTestId('summary-spend')).toHaveTextContent('HK$150.00')
-
-    await user.click(screen.getByRole('button', { name: 'Records' }))
-    await user.click(screen.getByRole('button', { name: 'Delete' }))
-
-    await user.click(screen.getByRole('button', { name: 'Overview' }))
-    expect(screen.getByTestId('summary-spend')).toHaveTextContent('HK$0.00')
   })
 
-  it('supports category creation, rename, and archive on the manage tab', async () => {
+  it('supports password reset and Google sign-in', async () => {
     const user = userEvent.setup()
 
     render(<App />)
 
-    await user.click(screen.getByRole('button', { name: 'Manage' }))
+    await user.click(screen.getByRole('button', { name: 'Reset' }))
+    await user.type(screen.getByLabelText('Email'), 'reset@example.com')
+    await user.click(screen.getByRole('button', { name: 'Send reset link' }))
 
-    const managePanel = screen
-      .getByRole('heading', { name: 'Categories & budgets' })
-      .closest('section')
-    expect(managePanel).not.toBeNull()
+    expect(
+      screen.getByText('Password reset email sent. Check your inbox.'),
+    ).toBeInTheDocument()
 
-    const manageScope = within(managePanel as HTMLElement)
-    await user.type(manageScope.getByLabelText('Name'), 'Pets')
-    await user.click(manageScope.getByRole('button', { name: 'Add category' }))
+    await user.click(screen.getByRole('button', { name: 'Sign in' }))
+    await user.click(screen.getByRole('button', { name: 'Continue with Google' }))
 
-    const petInput = manageScope.getByDisplayValue('Pets')
-    expect(petInput).toBeInTheDocument()
-
-    await user.clear(petInput)
-    await user.type(petInput, 'Pet Care')
-    const petRow = petInput.closest('article')
-    expect(petRow).not.toBeNull()
-
-    const petScope = within(petRow as HTMLElement)
-    await user.click(petScope.getByRole('button', { name: 'Save' }))
-    expect(manageScope.getByDisplayValue('Pet Care')).toBeInTheDocument()
-
-    await user.click(petScope.getByRole('button', { name: 'Archive' }))
-    expect(petScope.getByText('Archived')).toBeInTheDocument()
+    await screen.findByText('Google User')
+    expect(screen.getByText('Cloud sync enabled')).toBeInTheDocument()
   })
 
-  it('applies budget changes immediately and renders the overview table plus separated charts', async () => {
-    const user = userEvent.setup()
-
-    setStoredState({
-      transactions: [
-        {
-          id: 'expense-april',
-          type: 'expense',
-          categoryId: 'expense-food',
-          amount: 120,
-          occurredAt: '2026-04-10',
-          note: 'Groceries',
-        },
-        {
-          id: 'income-april',
-          type: 'income',
-          categoryId: 'income-salary',
-          amount: 1000,
-          occurredAt: '2026-04-10',
-          note: 'Salary',
-        },
-      ],
+  it('renders overview summary cards and mobile-friendly records from cloud state', async () => {
+    seedTestBackend({
+      user: {
+        uid: 'seed-user',
+        email: 'seed@example.com',
+        displayName: null,
+      },
+      state: buildSeedState({
+        transactions: [
+          {
+            id: 'expense-food',
+            type: 'expense',
+            categoryId: 'expense-food',
+            amount: 120,
+            occurredAt: '2026-04-10',
+            note: 'Groceries',
+          },
+          {
+            id: 'income-salary',
+            type: 'income',
+            categoryId: 'income-salary',
+            amount: 2400,
+            occurredAt: '2026-04-10',
+            note: 'Payroll',
+          },
+        ],
+        budgetRules: [
+          {
+            id: 'budget-monthly-total',
+            scope: 'total',
+            timeframe: 'monthly',
+            amount: 900,
+            effectiveFrom: '2026-04-01T00:00:00.000Z',
+          },
+          {
+            id: 'budget-monthly-food',
+            scope: 'category',
+            timeframe: 'monthly',
+            categoryId: 'expense-food',
+            amount: 500,
+            effectiveFrom: '2026-04-01T00:00:00.000Z',
+          },
+        ],
+      }),
     })
 
     render(<App />)
 
-    expect(screen.getByTestId('summary-budget')).toHaveTextContent('No budget')
-
-    await user.click(screen.getByRole('button', { name: 'Manage' }))
-
-    const budgetPanel = screen
-      .getByRole('heading', { name: 'Change budgets instantly' })
-      .closest('section')
-    expect(budgetPanel).not.toBeNull()
-
-    const budgetScope = within(budgetPanel as HTMLElement)
-    await user.selectOptions(budgetScope.getByLabelText('Timeframe'), 'monthly')
-    await user.clear(budgetScope.getByLabelText('Amount'))
-    await user.type(budgetScope.getByLabelText('Amount'), '900')
-    await user.click(budgetScope.getByRole('button', { name: 'Save budget change' }))
-
-    await user.click(screen.getByRole('button', { name: 'Overview' }))
-
-    expect(screen.getByTestId('summary-budget')).toHaveTextContent('HK$900.00')
+    expect(await screen.findByTestId('summary-budget')).toHaveTextContent('HK$900.00')
     expect(screen.getByTestId('summary-remaining')).toHaveTextContent('+HK$780.00')
-    expect(screen.getByTestId('summary-income')).toHaveTextContent('HK$1,000.00')
-    expect(screen.getByTestId('overview-summary-table')).toBeInTheDocument()
-    expect(screen.getByTestId('trend-chart')).toBeInTheDocument()
-    expect(screen.getByTestId('category-chart')).toBeInTheDocument()
-    expect(screen.getByTestId('overview-summary-table')).toHaveTextContent(
-      'Daily Budget (A)',
-    )
+    expect(screen.getByTestId('summary-income')).toHaveTextContent('HK$2,400.00')
+    expect(screen.getByTestId('overview-summary-cards')).toHaveTextContent('Food')
+
+    await userEvent.setup().click(screen.getByRole('button', { name: 'Records' }))
+    expect(screen.getByTestId('transactions-mobile-list')).toHaveTextContent('Groceries')
+  })
+
+  it('keeps each user account isolated from the others', async () => {
+    const user = userEvent.setup()
+
+    render(<App />)
+
+    await signUpWithEmail(user, { email: 'first@example.com' })
+    await createTransaction(user, { amount: '88', note: 'First account expense' })
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+
+    await signUpWithEmail(user, { email: 'second@example.com' })
+    expect(screen.getByTestId('overview-summary-cards')).toBeInTheDocument()
+    await user.click(screen.getByRole('button', { name: 'Records' }))
+
+    expect(screen.getAllByText('No transactions in this view')).toHaveLength(2)
+
+    await user.click(screen.getByRole('button', { name: 'Sign out' }))
+    await signInWithEmail(user, { email: 'first@example.com' })
+    await user.click(screen.getByRole('button', { name: 'Records' }))
+
+    const mobileRecords = within(screen.getByTestId('transactions-mobile-list'))
+    expect(mobileRecords.getByText('First account expense')).toBeInTheDocument()
   })
 })

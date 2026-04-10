@@ -9,8 +9,18 @@ lerna-debug.log*
 
 node_modules
 dist
+dist-native
 dist-ssr
+.env
+.env.*
+!.env.example
 *.local
+.capacitor
+/icons
+android/.gradle
+android/local.properties
+ios/App/Pods
+ios/App/App/public
 
 # Editor directories and files
 .vscode/*

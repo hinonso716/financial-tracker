@@ -1,11 +1,16 @@
-import type { AppState, BudgetRule, Category, Timeframe, Transaction } from './finance'
-
-export const STORAGE_KEY = 'financial-tracker-state-v1'
+import type {
+  AppState,
+  BudgetRule,
+  Category,
+  Preferences,
+  Timeframe,
+  Transaction,
+} from './finance'
 
 export const DEFAULT_PREFERENCES = {
   currency: 'HKD',
-  weekStartsOn: 1 as const,
-}
+  weekStartsOn: 1,
+} satisfies Preferences
 
 const expenseNames = [
   'Dining',
@@ -40,10 +45,7 @@ export const createEmptyState = (): AppState => ({
   transactions: [],
   categories: createDefaultCategories(),
   budgetRules: [],
-  preferences: {
-    currency: 'HKD',
-    weekStartsOn: 1,
-  },
+  preferences: { ...DEFAULT_PREFERENCES },
 })
 
 export const createTransactionId = () => `txn-${crypto.randomUUID()}`
